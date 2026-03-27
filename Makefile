@@ -1,4 +1,4 @@
-.PHONY: server worker test test-coverage lint fmt all docker-up docker-down docker-clean
+.PHONY: server worker test test-coverage lint fmt all generate sqlc docker-up docker-down docker-clean
 
 # --- Build & Run ---
 
@@ -26,6 +26,13 @@ fmt:
 	go fmt ./...
 
 all: fmt lint test
+
+# --- Code Generation ---
+
+generate: sqlc
+
+sqlc:
+	sqlc generate
 
 # --- Docker ---
 

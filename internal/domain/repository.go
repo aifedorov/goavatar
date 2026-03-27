@@ -1,5 +1,7 @@
 package domain
 
+//go:generate mockgen -destination=mocks/mock_repository.go -package=mocks . AvatarRepository
+
 import (
 	"context"
 

@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: goavatar-postgres
+    environment:
+      POSTGRES_DB: goavatar
+      POSTGRES_USER: goavatar
+      POSTGRES_PASSWORD: password
+      PGPORT: 5432
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U goavatar -d goavatar" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - goavatar-network
+
+  migrate:
+    image: migrate/migrate
+    container_name: goavatar-migrate
+    volumes:
+      - ./migrations:/migrations
+    command: [ "-path", "/migrations", "-database", "postgres://goavatar:password@postgres:5432/goavatar?sslmode=disable", "up" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - goavatar-network
+    restart: on-failure
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: goavatar-server
+    environment:
+      DATABASE_URI: "postgres://goavatar:password@postgres:5432/goavatar?sslmode=disable"
+      HTTP_ADDRESS: "0.0.0.0:8080"
+      LOG_LEVEL: "debug"
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - goavatar-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  goavatar-network:
+    driver: bridge

@@ -12,6 +12,8 @@ type Avatar struct {
 	FileName         string
 	MIMEType         string
 	SizeBytes        int64
+	S3Key            string
+	ThumbnailS3Keys  map[string]string
 	UploadStatus     Status
 	ProcessingStatus Status
 	CreatedAt        time.Time
