@@ -29,18 +29,16 @@ var thumbnailSizes = []struct {
 }
 
 type Worker struct {
-	repo     domain.AvatarRepository
-	storage  domain.FileStorage
-	resizer  Resizer
-	retryCfg RetryConfig
+	repo    domain.AvatarRepository
+	storage domain.FileStorage
+	resizer Resizer
 }
 
 func NewWorker(repo domain.AvatarRepository, storage domain.FileStorage, resizer Resizer) *Worker {
 	return &Worker{
-		repo:     repo,
-		storage:  storage,
-		resizer:  resizer,
-		retryCfg: DefaultRetryConfig(),
+		repo:    repo,
+		storage: storage,
+		resizer: resizer,
 	}
 }
 
@@ -62,18 +60,15 @@ func (w *Worker) HandleUploadEvent(ctx context.Context, event domain.AvatarUploa
 		return nil
 	}
 
-	var original []byte
-	err = Retry(ctx, w.retryCfg, func() error {
-		reader, dlErr := w.storage.Download(ctx, event.S3Key)
-		if dlErr != nil {
-			return dlErr
-		}
-		defer reader.Close()
-		original, dlErr = io.ReadAll(reader)
-		return dlErr
-	})
+	reader, err := w.storage.Download(ctx, event.S3Key)
 	if err != nil {
 		return fmt.Errorf("download original: %w", err)
+	}
+	defer reader.Close()
+
+	original, err := io.ReadAll(reader)
+	if err != nil {
+		return fmt.Errorf("read original: %w", err)
 	}
 
 	thumbs := make(map[string]string, len(thumbnailSizes))
@@ -84,11 +79,8 @@ func (w *Worker) HandleUploadEvent(ctx context.Context, event domain.AvatarUploa
 		}
 
 		key := ThumbKey(event.AvatarID, size.name)
-		uploadErr := Retry(ctx, w.retryCfg, func() error {
-			return w.storage.Upload(ctx, key, bytes.NewReader(resized), mime)
-		})
-		if uploadErr != nil {
-			return fmt.Errorf("upload thumbnail %s: %w", size.name, uploadErr)
+		if err := w.storage.Upload(ctx, key, bytes.NewReader(resized), mime); err != nil {
+			return fmt.Errorf("upload thumbnail %s: %w", size.name, err)
 		}
 		thumbs[size.name] = key
 	}

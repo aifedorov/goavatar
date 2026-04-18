@@ -22,10 +22,10 @@ import (
 )
 
 const (
-	prefetch           = 2
-	uploadConsumerTag  = "avatar-upload-worker"
-	deleteConsumerTag  = "avatar-delete-worker"
-	shutdownTimeout    = 30 * time.Second
+	prefetch          = 2
+	uploadConsumerTag = "avatar-upload-worker"
+	deleteConsumerTag = "avatar-delete-worker"
+	shutdownTimeout   = 30 * time.Second
 )
 
 type App struct {
@@ -123,18 +123,26 @@ func (a *App) Run() error {
 			}
 
 			if err := w.HandleUploadEvent(ctx, event); err != nil {
+				retry := retryCount(delivery)
 				a.logger.Error("handle upload event",
 					zap.String("avatar_id", event.AvatarID),
 					zap.Error(err),
+					zap.Int64("retry", retry),
 				)
-				requeue := IsRetryable(err)
-				if !requeue {
+				if retry < int64(len(rabbitmq.UploadRetryLevels)) {
+					if pubErr := publishRetryTo(ctx, ch, delivery, retry, rabbitmq.UploadRetryLevels); pubErr != nil {
+						a.logger.Error("publish retry", zap.Error(pubErr))
+					}
+				} else {
+					if pubErr := publishToDLQ(ctx, ch, delivery, rabbitmq.AvatarUploadDLQKey); pubErr != nil {
+						a.logger.Error("publish to dlq", zap.Error(pubErr))
+					}
 					avatarID, parseErr := uuid.Parse(event.AvatarID)
 					if parseErr == nil {
 						_ = w.repo.UpdateProcessingStatus(ctx, avatarID, domain.ProcessingStatusFailed, nil)
 					}
 				}
-				_ = delivery.Nack(false, requeue)
+				_ = delivery.Ack(false)
 				continue
 			}
 
@@ -159,11 +167,22 @@ func (a *App) Run() error {
 			}
 
 			if err := w.HandleDeleteEvent(ctx, event); err != nil {
+				retry := retryCount(delivery)
 				a.logger.Error("handle delete event",
 					zap.String("avatar_id", event.AvatarID),
 					zap.Error(err),
+					zap.Int64("retry", retry),
 				)
-				_ = delivery.Nack(false, false)
+				if retry < int64(len(rabbitmq.DeleteRetryLevels)) {
+					if pubErr := publishRetryTo(ctx, ch, delivery, retry, rabbitmq.DeleteRetryLevels); pubErr != nil {
+						a.logger.Error("publish delete retry", zap.Error(pubErr))
+					}
+				} else {
+					if pubErr := publishToDLQ(ctx, ch, delivery, rabbitmq.AvatarDeleteDLQKey); pubErr != nil {
+						a.logger.Error("publish to delete dlq", zap.Error(pubErr))
+					}
+				}
+				_ = delivery.Ack(false)
 				continue
 			}
 
@@ -190,4 +209,37 @@ func (a *App) Run() error {
 	}
 
 	return nil
+}
+
+func retryCount(d amqp.Delivery) int64 {
+	if d.Headers == nil {
+		return 0
+	}
+	count, _ := d.Headers[rabbitmq.HeaderRetryCount].(int64)
+	return count
+}
+
+func publishToDLQ(ctx context.Context, ch *amqp.Channel, d amqp.Delivery, dlqKey string) error {
+	headers := make(amqp.Table)
+	for k, v := range d.Headers {
+		headers[k] = v
+	}
+	return ch.PublishWithContext(ctx, rabbitmq.DLXExchangeName, dlqKey, false, false, amqp.Publishing{
+		MessageId:    d.MessageId,
+		Body:         d.Body,
+		DeliveryMode: amqp.Persistent,
+		Headers:      headers,
+	})
+}
+
+func publishRetryTo(ctx context.Context, ch *amqp.Channel, d amqp.Delivery, retry int64, levels []rabbitmq.RetryLevel) error {
+	level := levels[retry]
+	return ch.PublishWithContext(ctx, "", level.QueueName, false, false, amqp.Publishing{
+		MessageId:    d.MessageId,
+		Body:         d.Body,
+		DeliveryMode: amqp.Persistent,
+		Headers: amqp.Table{
+			rabbitmq.HeaderRetryCount: retry + 1,
+		},
+	})
 }
