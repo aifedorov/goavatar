@@ -101,6 +101,21 @@ func (mr *MockAvatarRepositoryMockRecorder) GetLatestByUserID(ctx, userID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestByUserID", reflect.TypeOf((*MockAvatarRepository)(nil).GetLatestByUserID), ctx, userID)
 }
 
+// GetProcessingStatus mocks base method.
+func (m *MockAvatarRepository) GetProcessingStatus(ctx context.Context, id uuid.UUID) (domain.ProcessingStatus, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProcessingStatus", ctx, id)
+	ret0, _ := ret[0].(domain.ProcessingStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProcessingStatus indicates an expected call of GetProcessingStatus.
+func (mr *MockAvatarRepositoryMockRecorder) GetProcessingStatus(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProcessingStatus", reflect.TypeOf((*MockAvatarRepository)(nil).GetProcessingStatus), ctx, id)
+}
+
 // SetUploadFailed mocks base method.
 func (m *MockAvatarRepository) SetUploadFailed(ctx context.Context, id uuid.UUID) error {
 	m.ctrl.T.Helper()

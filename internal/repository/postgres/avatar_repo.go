@@ -92,6 +92,17 @@ func (r *AvatarRepo) GetByUserID(ctx context.Context, userID string) ([]*domain.
 	return avatars, nil
 }
 
+func (r *AvatarRepo) GetProcessingStatus(ctx context.Context, id uuid.UUID) (domain.ProcessingStatus, error) {
+	status, err := r.q.GetProcessingStatus(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", domain.ErrNotFound
+		}
+		return "", fmt.Errorf("get processing status: %w", err)
+	}
+	return domain.ProcessingStatus(status), nil
+}
+
 func (r *AvatarRepo) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status domain.ProcessingStatus, thumbnails map[string]string) error {
 	var thumbJSON []byte
 	if thumbnails != nil {

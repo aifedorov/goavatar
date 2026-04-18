@@ -49,7 +49,7 @@ func TestAvatarService_Upload(t *testing.T) {
 						SetUploaded(gomock.Any(), gomock.Any()).
 						Return(nil),
 					pub.EXPECT().
-						PublishUpload(gomock.Any(), gomock.AssignableToTypeOf(domain.AvatarUploadEvent{})).
+						PublishUploadEvent(gomock.Any(), gomock.AssignableToTypeOf(domain.AvatarUploadEvent{})).
 						Return(nil),
 				)
 			},
@@ -85,6 +85,33 @@ func TestAvatarService_Upload(t *testing.T) {
 			sizeBytes:         -1,
 			wantErr:           "file size must be positive",
 			wantValidationErr: true,
+		},
+		{
+			name:      "file exceeds max upload size",
+			userID:    "user-123",
+			fileName:  "huge.jpg",
+			sizeBytes: 20 * 1024 * 1024,
+			wantErr:   "file too large",
+		},
+		{
+			name:      "file at exact max upload size accepted",
+			userID:    "user-123",
+			fileName:  "exact.jpg",
+			sizeBytes: 10 * 1024 * 1024,
+			setupMocks: func(repo *mocks.MockAvatarRepository, storage *mocks.MockFileStorage, pub *mocks.MockAvatarEventPublisher) {
+				gomock.InOrder(
+					repo.EXPECT().
+						Create(gomock.Any(), gomock.AssignableToTypeOf(&domain.Avatar{})).
+						DoAndReturn(func(_ context.Context, a *domain.Avatar) error {
+							a.UploadStatus = domain.UploadStatusUploading
+							a.ProcessingStatus = domain.ProcessingStatusPending
+							return nil
+						}),
+					storage.EXPECT().Upload(gomock.Any(), gomock.Any(), gomock.Any(), "image/jpeg").Return(nil),
+					repo.EXPECT().SetUploaded(gomock.Any(), gomock.Any()).Return(nil),
+					pub.EXPECT().PublishUploadEvent(gomock.Any(), gomock.Any()).Return(nil),
+				)
+			},
 		},
 		{
 			name:       "nil storage",
@@ -154,7 +181,7 @@ func TestAvatarService_Upload(t *testing.T) {
 					repo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil),
 					storage.EXPECT().Upload(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
 					repo.EXPECT().SetUploaded(gomock.Any(), gomock.Any()).Return(nil),
-					pub.EXPECT().PublishUpload(gomock.Any(), gomock.Any()).Return(fmt.Errorf("broker down")),
+					pub.EXPECT().PublishUploadEvent(gomock.Any(), gomock.Any()).Return(fmt.Errorf("broker down")),
 				)
 			},
 			wantErr: "publish upload event",
@@ -176,14 +203,16 @@ func TestAvatarService_Upload(t *testing.T) {
 			mockPub := mocks.NewMockAvatarEventPublisher(ctrl)
 			var svc *AvatarService
 
+			const maxBytes int64 = 10 * 1024 * 1024
+
 			if tt.nilStorage {
-				svc = NewAvatarService(mockRepo, nil, keyFunc, mockPub)
+				svc = NewAvatarService(mockRepo, nil, keyFunc, mockPub, maxBytes)
 			} else {
 				mockStorage := mocks.NewMockFileStorage(ctrl)
 				if tt.setupMocks != nil {
 					tt.setupMocks(mockRepo, mockStorage, mockPub)
 				}
-				svc = NewAvatarService(mockRepo, mockStorage, keyFunc, mockPub)
+				svc = NewAvatarService(mockRepo, mockStorage, keyFunc, mockPub, maxBytes)
 			}
 
 			avatar, err := svc.Upload(
@@ -261,7 +290,7 @@ func TestAvatarService_GetByID(t *testing.T) {
 			mockRepo := mocks.NewMockAvatarRepository(ctrl)
 			tt.setupMock(mockRepo)
 
-			svc := NewAvatarService(mockRepo, nil, nil, nil)
+			svc := NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
 			avatar, err := svc.GetByID(context.Background(), testID)
 
 			if tt.wantErr != "" {
@@ -321,7 +350,7 @@ func TestAvatarService_GetLatestByUserID(t *testing.T) {
 				tt.setupMock(mockRepo)
 			}
 
-			svc := NewAvatarService(mockRepo, nil, nil, nil)
+			svc := NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
 			avatar, err := svc.GetLatestByUserID(context.Background(), tt.userID)
 
 			if tt.wantErr != "" {
@@ -350,15 +379,14 @@ func TestAvatarService_Delete(t *testing.T) {
 	tests := []struct {
 		name              string
 		userID            string
-		nilStorage        bool
-		setupMocks        func(repo *mocks.MockAvatarRepository, storage *mocks.MockFileStorage)
+		setupMocks        func(repo *mocks.MockAvatarRepository, pub *mocks.MockAvatarEventPublisher)
 		wantErr           string
 		wantValidationErr bool
 	}{
 		{
-			name:   "success soft deletes avatar and removes original and thumbnails from storage",
+			name:   "success soft deletes and publishes delete event with all keys",
 			userID: owner,
-			setupMocks: func(repo *mocks.MockAvatarRepository, storage *mocks.MockFileStorage) {
+			setupMocks: func(repo *mocks.MockAvatarRepository, pub *mocks.MockAvatarEventPublisher) {
 				repo.EXPECT().
 					GetByID(gomock.Any(), testID).
 					Return(&domain.Avatar{
@@ -371,9 +399,12 @@ func TestAvatarService_Delete(t *testing.T) {
 						},
 					}, nil)
 				repo.EXPECT().SoftDelete(gomock.Any(), testID, owner).Return(nil)
-				storage.EXPECT().Delete(gomock.Any(), "originals/a.jpg").Return(nil)
-				storage.EXPECT().Delete(gomock.Any(), "thumbs/a-100.jpg").Return(nil)
-				storage.EXPECT().Delete(gomock.Any(), "thumbs/a-300.jpg").Return(nil)
+				pub.EXPECT().PublishDeleteEvent(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, event domain.AvatarDeleteEvent) error {
+						assert.Equal(t, testID.String(), event.AvatarID)
+						assert.Len(t, event.S3Keys, 3)
+						return nil
+					})
 			},
 		},
 		{
@@ -383,53 +414,39 @@ func TestAvatarService_Delete(t *testing.T) {
 			wantValidationErr: true,
 		},
 		{
-			name:   "not found bubbles up without storage delete",
+			name:   "not found",
 			userID: owner,
-			setupMocks: func(repo *mocks.MockAvatarRepository, _ *mocks.MockFileStorage) {
+			setupMocks: func(repo *mocks.MockAvatarRepository, _ *mocks.MockAvatarEventPublisher) {
 				repo.EXPECT().GetByID(gomock.Any(), testID).Return(nil, domain.ErrNotFound)
 			},
 			wantErr: "not found",
 		},
 		{
-			name:   "forbidden when owner mismatch without storage delete",
+			name:   "forbidden when owner mismatch",
 			userID: otherUser,
-			setupMocks: func(repo *mocks.MockAvatarRepository, _ *mocks.MockFileStorage) {
+			setupMocks: func(repo *mocks.MockAvatarRepository, _ *mocks.MockAvatarEventPublisher) {
 				repo.EXPECT().GetByID(gomock.Any(), testID).Return(&domain.Avatar{ID: testID, UserID: owner}, nil)
 			},
 			wantErr: "forbidden",
 		},
 		{
-			name:   "soft delete fails without storage delete",
+			name:   "soft delete fails",
 			userID: owner,
-			setupMocks: func(repo *mocks.MockAvatarRepository, _ *mocks.MockFileStorage) {
+			setupMocks: func(repo *mocks.MockAvatarRepository, _ *mocks.MockAvatarEventPublisher) {
 				repo.EXPECT().GetByID(gomock.Any(), testID).Return(&domain.Avatar{ID: testID, UserID: owner, S3Key: "originals/a.jpg"}, nil)
 				repo.EXPECT().SoftDelete(gomock.Any(), testID, owner).Return(fmt.Errorf("db error"))
 			},
 			wantErr: "delete avatar",
 		},
 		{
-			name:       "missing storage fails after soft delete",
+			name:   "publish delete event fails",
 			userID: owner,
-			nilStorage: true,
-			setupMocks: func(repo *mocks.MockAvatarRepository, _ *mocks.MockFileStorage) {
+			setupMocks: func(repo *mocks.MockAvatarRepository, pub *mocks.MockAvatarEventPublisher) {
 				repo.EXPECT().GetByID(gomock.Any(), testID).Return(&domain.Avatar{ID: testID, UserID: owner, S3Key: "originals/a.jpg"}, nil)
 				repo.EXPECT().SoftDelete(gomock.Any(), testID, owner).Return(nil)
+				pub.EXPECT().PublishDeleteEvent(gomock.Any(), gomock.Any()).Return(fmt.Errorf("broker down"))
 			},
-			wantErr: "file storage not configured",
-		},
-		{
-			name:   "storage delete failure surfaces as error",
-			userID: owner,
-			setupMocks: func(repo *mocks.MockAvatarRepository, storage *mocks.MockFileStorage) {
-				repo.EXPECT().GetByID(gomock.Any(), testID).Return(&domain.Avatar{
-					ID:     testID,
-					UserID: owner,
-					S3Key:  "originals/a.jpg",
-				}, nil)
-				repo.EXPECT().SoftDelete(gomock.Any(), testID, owner).Return(nil)
-				storage.EXPECT().Delete(gomock.Any(), "originals/a.jpg").Return(fmt.Errorf("s3 unavailable"))
-			},
-			wantErr: "delete avatar from storage",
+			wantErr: "publish delete event",
 		},
 	}
 
@@ -437,18 +454,12 @@ func TestAvatarService_Delete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockRepo := mocks.NewMockAvatarRepository(ctrl)
-			var storage domain.FileStorage
-			if !tt.nilStorage {
-				mockStorage := mocks.NewMockFileStorage(ctrl)
-				storage = mockStorage
-				if tt.setupMocks != nil {
-					tt.setupMocks(mockRepo, mockStorage)
-				}
-			} else if tt.setupMocks != nil {
-				tt.setupMocks(mockRepo, nil)
+			mockPub := mocks.NewMockAvatarEventPublisher(ctrl)
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockRepo, mockPub)
 			}
 
-			svc := NewAvatarService(mockRepo, storage, nil, nil)
+			svc := NewAvatarService(mockRepo, nil, nil, mockPub, 10*1024*1024)
 			err := svc.Delete(context.Background(), testID, tt.userID)
 
 			if tt.wantErr != "" {
@@ -530,9 +541,9 @@ func TestAvatarService_GetImage(t *testing.T) {
 
 			var svc *AvatarService
 			if tt.nilStorage {
-				svc = NewAvatarService(mockRepo, nil, nil, nil)
+				svc = NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
 			} else {
-				svc = NewAvatarService(mockRepo, mockStorage, nil, nil)
+				svc = NewAvatarService(mockRepo, mockStorage, nil, nil, 10*1024*1024)
 			}
 
 			avatar, reader, err := svc.GetImage(context.Background(), testID, "")
@@ -628,9 +639,9 @@ func TestAvatarService_GetUserImage(t *testing.T) {
 
 			var svc *AvatarService
 			if tt.nilStorage {
-				svc = NewAvatarService(mockRepo, nil, nil, nil)
+				svc = NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
 			} else {
-				svc = NewAvatarService(mockRepo, mockStorage, nil, nil)
+				svc = NewAvatarService(mockRepo, mockStorage, nil, nil, 10*1024*1024)
 			}
 
 			avatar, reader, err := svc.GetUserImage(context.Background(), tt.userID, "")

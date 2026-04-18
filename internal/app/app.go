@@ -80,12 +80,22 @@ func (a *App) Run() error {
 
 	publisher := rabbitmq.NewAvatarEventPublisher(ch)
 
-	avatarService := services.NewAvatarService(avatarRepo, fileStorage, s3KeyFunc, publisher)
-	avatarHandler := handlers.NewAvatarHandler(avatarService, avatarService, avatarService, avatarService, a.logger)
+	avatarService := services.NewAvatarService(avatarRepo, fileStorage, s3KeyFunc, publisher, a.cfg.MaxUploadBytes)
+	avatarHandler := handlers.NewAvatarHandler(avatarService, avatarService, avatarService, avatarService, a.logger, a.cfg.MaxUploadBytes)
 
 	healthHandler := handlers.NewHealthHandler(a.logger, 2*time.Second,
 		handlers.HealthCheck{Name: "postgres", Check: pool.Ping},
 		handlers.HealthCheck{Name: "s3", Check: fileStorage.Ping},
+		handlers.HealthCheck{Name: "rabbitmq", Check: func(_ context.Context) error {
+			if conn.IsClosed() {
+				return fmt.Errorf("connection closed")
+			}
+			testCh, err := conn.Channel()
+			if err != nil {
+				return fmt.Errorf("open channel: %w", err)
+			}
+			return testCh.Close()
+		}},
 	)
 
 	r := chi.NewRouter()
@@ -98,9 +108,11 @@ func (a *App) Run() error {
 	r.Delete("/api/v1/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
 	r.Get("/api/v1/users/{user_id}/avatars", avatarHandler.ListUserAvatars)
 
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "/app/web/static/index.html")
-	})
+	staticDir := "web/static"
+	if a.cfg.StaticDir != "" {
+		staticDir = a.cfg.StaticDir
+	}
+	r.Handle("/*", http.FileServer(http.Dir(staticDir)))
 
 	srv := &http.Server{
 		Addr:    a.cfg.HTTPAddress,

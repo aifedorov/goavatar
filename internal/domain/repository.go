@@ -15,6 +15,7 @@ type AvatarRepository interface {
 	GetLatestByUserID(ctx context.Context, userID string) (*Avatar, error)
 	SetUploaded(ctx context.Context, id uuid.UUID) error
 	SetUploadFailed(ctx context.Context, id uuid.UUID) error
+	GetProcessingStatus(ctx context.Context, id uuid.UUID) (ProcessingStatus, error)
 	UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status ProcessingStatus, thumbnails map[string]string) error
 	SoftDelete(ctx context.Context, id uuid.UUID, userID string) error
 }

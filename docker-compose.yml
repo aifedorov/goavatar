@@ -105,8 +105,36 @@ services:
       S3_SECRET_KEY: "minioadmin"
       S3_USE_SSL: "false"
       RABBITMQ_URL: "amqp://rabbitmq:rabbitmq@rabbitmq:5672/"
+      STATIC_DIR: "/app/web/static"
     ports:
       - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-setup:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - goavatar-network
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: goavatar:latest
+    container_name: goavatar-worker
+    command: ["/app/worker"]
+    environment:
+      DATABASE_URI: "postgres://goavatar:password@postgres:5432/goavatar?sslmode=disable"
+      LOG_LEVEL: "debug"
+      S3_ENDPOINT: "minio:9000"
+      S3_BUCKET: "avatars"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+      S3_USE_SSL: "false"
+      RABBITMQ_URL: "amqp://rabbitmq:rabbitmq@rabbitmq:5672/"
     depends_on:
       migrate:
         condition: service_completed_successfully

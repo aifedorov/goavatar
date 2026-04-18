@@ -16,7 +16,9 @@ type Config struct {
 	S3AccessKey string `env:"S3_ACCESS_KEY,required"`
 	S3SecretKey string `env:"S3_SECRET_KEY,required"`
 	S3UseSSL    bool   `env:"S3_USE_SSL" envDefault:"false"`
-	RabbitMQURL string `env:"RABBITMQ_URL,required"`
+	RabbitMQURL    string `env:"RABBITMQ_URL,required"`
+	MaxUploadBytes int64  `env:"MAX_UPLOAD_BYTES" envDefault:"10485760"`
+	StaticDir      string `env:"STATIC_DIR" envDefault:"web/static"`
 }
 
 func LoadConfig() (*Config, error) {

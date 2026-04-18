@@ -44,6 +44,12 @@ WHERE id = $1
   AND user_id = $2
   AND deleted_at IS NULL;
 
+-- name: GetProcessingStatus :one
+SELECT processing_status
+FROM avatars
+WHERE id = $1
+  AND deleted_at IS NULL;
+
 -- name: UpdateProcessingStatus :exec
 UPDATE avatars
 SET processing_status = $2,

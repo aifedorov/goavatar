@@ -39,20 +39,22 @@ type AvatarLister interface {
 }
 
 type AvatarHandler struct {
-	uploader AvatarUploader
-	getter   AvatarGetter
-	deleter  AvatarDeleter
-	lister   AvatarLister
-	logger   *zap.Logger
+	uploader       AvatarUploader
+	getter         AvatarGetter
+	deleter        AvatarDeleter
+	lister         AvatarLister
+	logger         *zap.Logger
+	maxUploadBytes int64
 }
 
-func NewAvatarHandler(uploader AvatarUploader, getter AvatarGetter, deleter AvatarDeleter, lister AvatarLister, logger *zap.Logger) *AvatarHandler {
+func NewAvatarHandler(uploader AvatarUploader, getter AvatarGetter, deleter AvatarDeleter, lister AvatarLister, logger *zap.Logger, maxUploadBytes int64) *AvatarHandler {
 	return &AvatarHandler{
-		uploader: uploader,
-		getter:   getter,
-		deleter:  deleter,
-		lister:   lister,
-		logger:   logger,
+		uploader:       uploader,
+		getter:         getter,
+		deleter:        deleter,
+		lister:         lister,
+		logger:         logger,
+		maxUploadBytes: maxUploadBytes,
 	}
 }
 
@@ -69,6 +71,11 @@ type errorResponse struct {
 	Details string `json:"details,omitempty"`
 }
 
+type fileTooLargeResponse struct {
+	Error   string `json:"error"`
+	MaxSize int64  `json:"max_size"`
+}
+
 func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	if userID == "" {
@@ -76,8 +83,16 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Headroom for multipart boundaries/headers; service enforces exact file size.
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes+1<<20)
+
 	file, header, err := r.FormFile("file")
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			h.writeFileTooLarge(w)
+			return
+		}
 		h.logger.Error("parse form file", zap.Error(err))
 		h.writeError(w, http.StatusBadRequest, "file is required")
 		return
@@ -93,6 +108,10 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		file,
 	)
 	if err != nil {
+		if errors.Is(err, domain.ErrFileTooLarge) {
+			h.writeFileTooLarge(w)
+			return
+		}
 		if validErr, ok := errors.AsType[*domain.ValidationError](err); ok {
 			h.writeError(w, http.StatusBadRequest, validErr.Message)
 			return
@@ -314,6 +333,15 @@ func (h *AvatarHandler) handleGetError(w http.ResponseWriter, err error) {
 	}
 	h.logger.Error("get avatar", zap.Error(err))
 	h.writeError(w, http.StatusInternalServerError, "internal server error")
+}
+
+func (h *AvatarHandler) writeFileTooLarge(w http.ResponseWriter) {
+	if err := writeJSON(w, http.StatusRequestEntityTooLarge, fileTooLargeResponse{
+		Error:   "File too large",
+		MaxSize: h.maxUploadBytes,
+	}); err != nil {
+		h.logger.Error("encode file too large response", zap.Error(err))
+	}
 }
 
 func (h *AvatarHandler) writeError(w http.ResponseWriter, status int, msg string) {

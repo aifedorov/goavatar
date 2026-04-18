@@ -86,6 +86,18 @@ func TestAvatarHandler_Upload(t *testing.T) {
 			wantStatus: http.StatusInternalServerError,
 			wantError:  "internal server error",
 		},
+		{
+			name:     "service returns file too large",
+			userID:   "user-123",
+			withFile: true,
+			setupMock: func(m *mocks.MockAvatarUploader) {
+				m.EXPECT().
+					Upload(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(nil, fmt.Errorf("upload avatar: %w", domain.ErrFileTooLarge))
+			},
+			wantStatus: http.StatusRequestEntityTooLarge,
+			wantError:  "File too large",
+		},
 	}
 
 	for _, tt := range tests {
@@ -97,7 +109,7 @@ func TestAvatarHandler_Upload(t *testing.T) {
 				tt.setupMock(mockUploader)
 			}
 
-			handler := NewAvatarHandler(mockUploader, nil, nil, nil, zap.NewNop())
+			handler := NewAvatarHandler(mockUploader, nil, nil, nil, zap.NewNop(), 10*1024*1024)
 
 			req := newMultipartRequest(t, tt.userID, tt.withFile)
 			rec := httptest.NewRecorder()
@@ -202,7 +214,7 @@ func TestAvatarHandler_GetImage(t *testing.T) {
 				tt.setupMock(mockGetter)
 			}
 
-			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop())
+			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop(), 10*1024*1024)
 
 			target := "/api/v1/avatars/" + tt.avatarID
 			if tt.size != "" {
@@ -285,7 +297,7 @@ func TestAvatarHandler_GetUserAvatar(t *testing.T) {
 				tt.setupMock(mockGetter)
 			}
 
-			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop())
+			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop(), 10*1024*1024)
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+tt.userID+"/avatar", nil)
 			rctx := chi.NewRouteContext()
@@ -416,7 +428,7 @@ func TestAvatarHandler_GetMetadata(t *testing.T) {
 				tt.setupMock(mockGetter)
 			}
 
-			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop())
+			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop(), 10*1024*1024)
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+tt.avatarID+"/metadata", nil)
 			rctx := chi.NewRouteContext()
@@ -442,6 +454,189 @@ func TestAvatarHandler_GetMetadata(t *testing.T) {
 	}
 }
 
+func TestAvatarHandler_Upload_MaxBytesReader(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockUploader := mocks.NewMockAvatarUploader(ctrl)
+
+	// maxUploadBytes=1024, body limit = 1024 + 1MB; send >1MB to trigger
+	handler := NewAvatarHandler(mockUploader, nil, nil, nil, zap.NewNop(), 1024)
+
+	req := newMultipartRequestWithSize(t, "user-123", 2*1024*1024)
+	rec := httptest.NewRecorder()
+
+	handler.Upload(rec, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	assert.Equal(t, "File too large", resp["error"])
+	assert.NotNil(t, resp["max_size"])
+}
+
+func TestAvatarHandler_DeleteAvatar(t *testing.T) {
+	testID := uuid.MustParse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+
+	tests := []struct {
+		name       string
+		userID     string
+		avatarID   string
+		setupMock  func(m *mocks.MockAvatarDeleter)
+		wantStatus int
+		wantError  string
+	}{
+		{
+			name:     "success",
+			userID:   "user-123",
+			avatarID: testID.String(),
+			setupMock: func(m *mocks.MockAvatarDeleter) {
+				m.EXPECT().Delete(gomock.Any(), testID, "user-123").Return(nil)
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "missing X-User-ID",
+			userID:     "",
+			avatarID:   testID.String(),
+			wantStatus: http.StatusBadRequest,
+			wantError:  "X-User-ID header is required",
+		},
+		{
+			name:       "invalid avatar ID",
+			userID:     "user-123",
+			avatarID:   "bad",
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid avatar ID",
+		},
+		{
+			name:     "not found",
+			userID:   "user-123",
+			avatarID: testID.String(),
+			setupMock: func(m *mocks.MockAvatarDeleter) {
+				m.EXPECT().Delete(gomock.Any(), testID, "user-123").Return(fmt.Errorf("delete avatar: %w", domain.ErrNotFound))
+			},
+			wantStatus: http.StatusNotFound,
+			wantError:  "avatar not found",
+		},
+		{
+			name:     "forbidden",
+			userID:   "user-123",
+			avatarID: testID.String(),
+			setupMock: func(m *mocks.MockAvatarDeleter) {
+				m.EXPECT().Delete(gomock.Any(), testID, "user-123").Return(fmt.Errorf("delete avatar: %w", domain.ErrForbidden))
+			},
+			wantStatus: http.StatusForbidden,
+			wantError:  "you can only delete your own avatars",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockDeleter := mocks.NewMockAvatarDeleter(ctrl)
+			if tt.setupMock != nil {
+				tt.setupMock(mockDeleter)
+			}
+
+			handler := NewAvatarHandler(nil, nil, mockDeleter, nil, zap.NewNop(), 10*1024*1024)
+
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/avatars/"+tt.avatarID, nil)
+			if tt.userID != "" {
+				req.Header.Set("X-User-ID", tt.userID)
+			}
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("avatar_id", tt.avatarID)
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+			rec := httptest.NewRecorder()
+			handler.DeleteAvatar(rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantError != "" {
+				var resp errorResponse
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				assert.Equal(t, tt.wantError, resp.Error)
+			}
+		})
+	}
+}
+
+func TestAvatarHandler_ListUserAvatars(t *testing.T) {
+	testID := uuid.MustParse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+
+	tests := []struct {
+		name       string
+		userID     string
+		setupMock  func(m *mocks.MockAvatarLister)
+		wantStatus int
+		wantCount  int
+		wantError  string
+	}{
+		{
+			name:   "success with avatars",
+			userID: "user-123",
+			setupMock: func(m *mocks.MockAvatarLister) {
+				m.EXPECT().ListByUserID(gomock.Any(), "user-123").Return([]*domain.Avatar{
+					{ID: testID, UserID: "user-123", FileName: "a.jpg", ProcessingStatus: domain.ProcessingStatusCompleted},
+				}, nil)
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+		{
+			name:   "success empty list",
+			userID: "user-123",
+			setupMock: func(m *mocks.MockAvatarLister) {
+				m.EXPECT().ListByUserID(gomock.Any(), "user-123").Return([]*domain.Avatar{}, nil)
+			},
+			wantStatus: http.StatusOK,
+			wantCount:  0,
+		},
+		{
+			name:   "service error",
+			userID: "user-123",
+			setupMock: func(m *mocks.MockAvatarLister) {
+				m.EXPECT().ListByUserID(gomock.Any(), "user-123").Return(nil, fmt.Errorf("db error"))
+			},
+			wantStatus: http.StatusInternalServerError,
+			wantError:  "internal server error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockLister := mocks.NewMockAvatarLister(ctrl)
+			if tt.setupMock != nil {
+				tt.setupMock(mockLister)
+			}
+
+			handler := NewAvatarHandler(nil, nil, nil, mockLister, zap.NewNop(), 10*1024*1024)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+tt.userID+"/avatars", nil)
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("user_id", tt.userID)
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+			rec := httptest.NewRecorder()
+			handler.ListUserAvatars(rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantError != "" {
+				var resp errorResponse
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				assert.Equal(t, tt.wantError, resp.Error)
+			}
+			if tt.wantCount >= 0 && tt.wantError == "" {
+				var items []avatarListItem
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&items))
+				assert.Len(t, items, tt.wantCount)
+			}
+		})
+	}
+}
+
 func newMultipartRequest(t *testing.T, userID string, withFile bool) *http.Request {
 	t.Helper()
 
@@ -462,5 +657,24 @@ func newMultipartRequest(t *testing.T, userID string, withFile bool) *http.Reque
 		req.Header.Set("X-User-ID", userID)
 	}
 
+	return req
+}
+
+func newMultipartRequestWithSize(t *testing.T, userID string, fileSize int) *http.Request {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", "big.jpg")
+	require.NoError(t, err)
+	_, err = part.Write(make([]byte, fileSize))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/avatars", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if userID != "" {
+		req.Header.Set("X-User-ID", userID)
+	}
 	return req
 }

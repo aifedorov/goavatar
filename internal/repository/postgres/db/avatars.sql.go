@@ -148,6 +148,20 @@ func (q *Queries) GetLatestAvatarByUserID(ctx context.Context, userID string) (A
 	return i, err
 }
 
+const getProcessingStatus = `-- name: GetProcessingStatus :one
+SELECT processing_status
+FROM avatars
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+func (q *Queries) GetProcessingStatus(ctx context.Context, id pgtype.UUID) (ProcessingStatus, error) {
+	row := q.db.QueryRow(ctx, getProcessingStatus, id)
+	var processing_status ProcessingStatus
+	err := row.Scan(&processing_status)
+	return processing_status, err
+}
+
 const setAvatarUploadFailed = `-- name: SetAvatarUploadFailed :exec
 UPDATE avatars
 SET upload_status = 'failed',
