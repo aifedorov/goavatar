@@ -49,10 +49,13 @@ func (a *App) Run() error {
 
 	// TODO: replace nil with FileStorage implementation (MinIO/S3)
 	avatarService := services.NewAvatarService(avatarRepo, nil, nil)
-	avatarHandler := handlers.NewAvatarHandler(avatarService, a.logger)
+	avatarHandler := handlers.NewAvatarHandler(avatarService, avatarService, avatarService, avatarService, a.logger)
 
 	r := chi.NewRouter()
 	r.Post("/api/v1/avatars", avatarHandler.Upload)
+	r.Get("/api/v1/avatars/{avatar_id}", avatarHandler.GetImage)
+	r.Get("/api/v1/avatars/{avatar_id}/metadata", avatarHandler.GetMetadata)
+	r.Get("/api/v1/users/{user_id}/avatar", avatarHandler.GetUserAvatar)
 
 	srv := &http.Server{
 		Addr:    a.cfg.HTTPAddress,

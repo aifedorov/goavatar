@@ -86,6 +86,21 @@ func (mr *MockAvatarRepositoryMockRecorder) GetByUserID(ctx, userID any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByUserID", reflect.TypeOf((*MockAvatarRepository)(nil).GetByUserID), ctx, userID)
 }
 
+// GetLatestByUserID mocks base method.
+func (m *MockAvatarRepository) GetLatestByUserID(ctx context.Context, userID string) (*domain.Avatar, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestByUserID", ctx, userID)
+	ret0, _ := ret[0].(*domain.Avatar)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestByUserID indicates an expected call of GetLatestByUserID.
+func (mr *MockAvatarRepositoryMockRecorder) GetLatestByUserID(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestByUserID", reflect.TypeOf((*MockAvatarRepository)(nil).GetLatestByUserID), ctx, userID)
+}
+
 // SoftDelete mocks base method.
 func (m *MockAvatarRepository) SoftDelete(ctx context.Context, id uuid.UUID, userID string) error {
 	m.ctrl.T.Helper()

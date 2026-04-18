@@ -13,8 +13,7 @@ import (
 
 const createAvatar = `-- name: CreateAvatar :one
 INSERT INTO avatars (id, user_id, file_name, mime_type, size_bytes, s3_key, upload_status, processing_status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at
 `
 
 type CreateAvatarParams struct {
@@ -55,4 +54,129 @@ func (q *Queries) CreateAvatar(ctx context.Context, arg CreateAvatarParams) (Ava
 		&i.DeletedAt,
 	)
 	return i, err
+}
+
+const getAvatarByID = `-- name: GetAvatarByID :one
+SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at FROM avatars WHERE id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) GetAvatarByID(ctx context.Context, id pgtype.UUID) (Avatar, error) {
+	row := q.db.QueryRow(ctx, getAvatarByID, id)
+	var i Avatar
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.FileName,
+		&i.MimeType,
+		&i.SizeBytes,
+		&i.S3Key,
+		&i.ThumbnailS3Keys,
+		&i.UploadStatus,
+		&i.ProcessingStatus,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getAvatarsByUserID = `-- name: GetAvatarsByUserID :many
+SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at FROM avatars
+WHERE user_id = $1 AND deleted_at IS NULL
+ORDER BY created_at DESC
+`
+
+func (q *Queries) GetAvatarsByUserID(ctx context.Context, userID string) ([]Avatar, error) {
+	rows, err := q.db.Query(ctx, getAvatarsByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Avatar
+	for rows.Next() {
+		var i Avatar
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.FileName,
+			&i.MimeType,
+			&i.SizeBytes,
+			&i.S3Key,
+			&i.ThumbnailS3Keys,
+			&i.UploadStatus,
+			&i.ProcessingStatus,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getLatestAvatarByUserID = `-- name: GetLatestAvatarByUserID :one
+SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at FROM avatars
+WHERE user_id = $1 AND deleted_at IS NULL
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestAvatarByUserID(ctx context.Context, userID string) (Avatar, error) {
+	row := q.db.QueryRow(ctx, getLatestAvatarByUserID, userID)
+	var i Avatar
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.FileName,
+		&i.MimeType,
+		&i.SizeBytes,
+		&i.S3Key,
+		&i.ThumbnailS3Keys,
+		&i.UploadStatus,
+		&i.ProcessingStatus,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const softDeleteAvatar = `-- name: SoftDeleteAvatar :execrows
+UPDATE avatars SET deleted_at = NOW(), updated_at = NOW()
+WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+`
+
+type SoftDeleteAvatarParams struct {
+	ID     pgtype.UUID
+	UserID string
+}
+
+func (q *Queries) SoftDeleteAvatar(ctx context.Context, arg SoftDeleteAvatarParams) (int64, error) {
+	result, err := q.db.Exec(ctx, softDeleteAvatar, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateProcessingStatus = `-- name: UpdateProcessingStatus :exec
+UPDATE avatars
+SET processing_status = $2, thumbnail_s3_keys = $3, updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+type UpdateProcessingStatusParams struct {
+	ID               pgtype.UUID
+	ProcessingStatus string
+	ThumbnailS3Keys  []byte
+}
+
+func (q *Queries) UpdateProcessingStatus(ctx context.Context, arg UpdateProcessingStatusParams) error {
+	_, err := q.db.Exec(ctx, updateProcessingStatus, arg.ID, arg.ProcessingStatus, arg.ThumbnailS3Keys)
+	return err
 }

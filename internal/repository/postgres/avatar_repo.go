@@ -2,11 +2,14 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/aifedorov/goavatar/internal/domain"
 	"github.com/aifedorov/goavatar/internal/repository/postgres/db"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -41,17 +44,94 @@ func (r *AvatarRepo) Create(ctx context.Context, avatar *domain.Avatar) error {
 }
 
 func (r *AvatarRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Avatar, error) {
-	return nil, fmt.Errorf("not implemented")
+	row, err := r.q.GetAvatarByID(ctx, pgtype.UUID{Bytes: id, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get avatar by id: %w", err)
+	}
+	return toDomainAvatar(row), nil
+}
+
+func (r *AvatarRepo) GetLatestByUserID(ctx context.Context, userID string) (*domain.Avatar, error) {
+	row, err := r.q.GetLatestAvatarByUserID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, fmt.Errorf("get latest avatar by user id: %w", err)
+	}
+	return toDomainAvatar(row), nil
 }
 
 func (r *AvatarRepo) GetByUserID(ctx context.Context, userID string) ([]*domain.Avatar, error) {
-	return nil, fmt.Errorf("not implemented")
+	rows, err := r.q.GetAvatarsByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get avatars by user id: %w", err)
+	}
+
+	avatars := make([]*domain.Avatar, 0, len(rows))
+	for _, row := range rows {
+		avatars = append(avatars, toDomainAvatar(row))
+	}
+	return avatars, nil
 }
 
 func (r *AvatarRepo) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status domain.Status, thumbnails map[string]string) error {
-	return fmt.Errorf("not implemented")
+	var thumbJSON []byte
+	if thumbnails != nil {
+		var err error
+		thumbJSON, err = json.Marshal(thumbnails)
+		if err != nil {
+			return fmt.Errorf("marshal thumbnails: %w", err)
+		}
+	}
+
+	err := r.q.UpdateProcessingStatus(ctx, db.UpdateProcessingStatusParams{
+		ID:               pgtype.UUID{Bytes: id, Valid: true},
+		ProcessingStatus: string(status),
+		ThumbnailS3Keys:  thumbJSON,
+	})
+	if err != nil {
+		return fmt.Errorf("update processing status: %w", err)
+	}
+	return nil
 }
 
 func (r *AvatarRepo) SoftDelete(ctx context.Context, id uuid.UUID, userID string) error {
-	return fmt.Errorf("not implemented")
+	rowsAffected, err := r.q.SoftDeleteAvatar(ctx, db.SoftDeleteAvatarParams{
+		ID:     pgtype.UUID{Bytes: id, Valid: true},
+		UserID: userID,
+	})
+	if err != nil {
+		return fmt.Errorf("soft delete avatar: %w", err)
+	}
+	if rowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func toDomainAvatar(row db.Avatar) *domain.Avatar {
+	avatar := &domain.Avatar{
+		ID:               row.ID.Bytes,
+		UserID:           row.UserID,
+		FileName:         row.FileName,
+		MIMEType:         row.MimeType,
+		SizeBytes:        row.SizeBytes,
+		S3Key:            row.S3Key,
+		UploadStatus:     domain.Status(row.UploadStatus),
+		ProcessingStatus: domain.Status(row.ProcessingStatus),
+		CreatedAt:        row.CreatedAt.Time,
+		UpdatedAt:        row.UpdatedAt.Time,
+	}
+	if row.DeletedAt.Valid {
+		t := row.DeletedAt.Time
+		avatar.DeletedAt = &t
+	}
+	if row.ThumbnailS3Keys != nil {
+		_ = json.Unmarshal(row.ThumbnailS3Keys, &avatar.ThumbnailS3Keys)
+	}
+	return avatar
 }
