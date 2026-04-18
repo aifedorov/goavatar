@@ -130,19 +130,25 @@ func (a *App) Run() error {
 					zap.Int64("retry", retry),
 				)
 				if retry < int64(len(rabbitmq.UploadRetryLevels)) {
-					if pubErr := publishRetryTo(ctx, ch, delivery, retry, rabbitmq.UploadRetryLevels); pubErr != nil {
+					if pubErr := republishOrRequeue(delivery, func() error {
+						return publishRetryTo(ctx, ch, delivery, retry, rabbitmq.UploadRetryLevels)
+					}, nil); pubErr != nil {
 						a.logger.Error("publish retry", zap.Error(pubErr))
+						continue
 					}
 				} else {
-					if pubErr := publishToDLQ(ctx, ch, delivery, rabbitmq.AvatarUploadDLQKey); pubErr != nil {
+					if pubErr := republishOrRequeue(delivery, func() error {
+						return publishToDLQ(ctx, ch, delivery, rabbitmq.AvatarUploadDLQKey)
+					}, func() {
+						avatarID, parseErr := uuid.Parse(event.AvatarID)
+						if parseErr == nil {
+							_ = w.repo.UpdateProcessingStatus(ctx, avatarID, domain.ProcessingStatusFailed, nil)
+						}
+					}); pubErr != nil {
 						a.logger.Error("publish to dlq", zap.Error(pubErr))
-					}
-					avatarID, parseErr := uuid.Parse(event.AvatarID)
-					if parseErr == nil {
-						_ = w.repo.UpdateProcessingStatus(ctx, avatarID, domain.ProcessingStatusFailed, nil)
+						continue
 					}
 				}
-				_ = delivery.Ack(false)
 				continue
 			}
 
@@ -174,15 +180,20 @@ func (a *App) Run() error {
 					zap.Int64("retry", retry),
 				)
 				if retry < int64(len(rabbitmq.DeleteRetryLevels)) {
-					if pubErr := publishRetryTo(ctx, ch, delivery, retry, rabbitmq.DeleteRetryLevels); pubErr != nil {
+					if pubErr := republishOrRequeue(delivery, func() error {
+						return publishRetryTo(ctx, ch, delivery, retry, rabbitmq.DeleteRetryLevels)
+					}, nil); pubErr != nil {
 						a.logger.Error("publish delete retry", zap.Error(pubErr))
+						continue
 					}
 				} else {
-					if pubErr := publishToDLQ(ctx, ch, delivery, rabbitmq.AvatarDeleteDLQKey); pubErr != nil {
+					if pubErr := republishOrRequeue(delivery, func() error {
+						return publishToDLQ(ctx, ch, delivery, rabbitmq.AvatarDeleteDLQKey)
+					}, nil); pubErr != nil {
 						a.logger.Error("publish to delete dlq", zap.Error(pubErr))
+						continue
 					}
 				}
-				_ = delivery.Ack(false)
 				continue
 			}
 
@@ -242,4 +253,18 @@ func publishRetryTo(ctx context.Context, ch *amqp.Channel, d amqp.Delivery, retr
 			rabbitmq.HeaderRetryCount: retry + 1,
 		},
 	})
+}
+
+func republishOrRequeue(delivery amqp.Delivery, publish func() error, afterPublish func()) error {
+	if err := publish(); err != nil {
+		_ = delivery.Nack(false, true)
+		return err
+	}
+
+	if afterPublish != nil {
+		afterPublish()
+	}
+
+	_ = delivery.Ack(false)
+	return nil
 }
