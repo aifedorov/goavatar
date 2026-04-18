@@ -42,7 +42,7 @@ func TestAvatarHandler_Upload(t *testing.T) {
 					Return(&domain.Avatar{
 						ID:               uuid.MustParse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
 						UserID:           "user-123",
-						ProcessingStatus: domain.StatusPending,
+						ProcessingStatus: domain.ProcessingStatusPending,
 						CreatedAt:        time.Date(2026, 3, 27, 10, 0, 0, 0, time.UTC),
 					}, nil)
 			},

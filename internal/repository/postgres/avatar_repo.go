@@ -24,22 +24,36 @@ func NewAvatarRepo(pool *pgxpool.Pool) *AvatarRepo {
 
 func (r *AvatarRepo) Create(ctx context.Context, avatar *domain.Avatar) error {
 	row, err := r.q.CreateAvatar(ctx, db.CreateAvatarParams{
-		ID:               pgtype.UUID{Bytes: avatar.ID, Valid: true},
-		UserID:           avatar.UserID,
-		FileName:         avatar.FileName,
-		MimeType:         avatar.MIMEType,
-		SizeBytes:        avatar.SizeBytes,
-		S3Key:            avatar.S3Key,
-		UploadStatus:     string(avatar.UploadStatus),
-		ProcessingStatus: string(avatar.ProcessingStatus),
+		ID:        pgtype.UUID{Bytes: avatar.ID, Valid: true},
+		UserID:    avatar.UserID,
+		FileName:  avatar.FileName,
+		MimeType:  avatar.MIMEType,
+		SizeBytes: avatar.SizeBytes,
+		S3Key:     avatar.S3Key,
 	})
 	if err != nil {
 		return fmt.Errorf("create avatar: %w", err)
 	}
 
+	avatar.UploadStatus = domain.UploadStatus(row.UploadStatus)
+	avatar.ProcessingStatus = domain.ProcessingStatus(row.ProcessingStatus)
 	avatar.CreatedAt = row.CreatedAt.Time
 	avatar.UpdatedAt = row.UpdatedAt.Time
 
+	return nil
+}
+
+func (r *AvatarRepo) SetUploaded(ctx context.Context, id uuid.UUID) error {
+	if err := r.q.SetAvatarUploaded(ctx, pgtype.UUID{Bytes: id, Valid: true}); err != nil {
+		return fmt.Errorf("set avatar uploaded: %w", err)
+	}
+	return nil
+}
+
+func (r *AvatarRepo) SetUploadFailed(ctx context.Context, id uuid.UUID) error {
+	if err := r.q.SetAvatarUploadFailed(ctx, pgtype.UUID{Bytes: id, Valid: true}); err != nil {
+		return fmt.Errorf("set avatar upload failed: %w", err)
+	}
 	return nil
 }
 
@@ -78,7 +92,7 @@ func (r *AvatarRepo) GetByUserID(ctx context.Context, userID string) ([]*domain.
 	return avatars, nil
 }
 
-func (r *AvatarRepo) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status domain.Status, thumbnails map[string]string) error {
+func (r *AvatarRepo) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status domain.ProcessingStatus, thumbnails map[string]string) error {
 	var thumbJSON []byte
 	if thumbnails != nil {
 		var err error
@@ -90,7 +104,7 @@ func (r *AvatarRepo) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, s
 
 	err := r.q.UpdateProcessingStatus(ctx, db.UpdateProcessingStatusParams{
 		ID:               pgtype.UUID{Bytes: id, Valid: true},
-		ProcessingStatus: string(status),
+		ProcessingStatus: db.ProcessingStatus(status),
 		ThumbnailS3Keys:  thumbJSON,
 	})
 	if err != nil {
@@ -121,8 +135,8 @@ func toDomainAvatar(row db.Avatar) *domain.Avatar {
 		MIMEType:         row.MimeType,
 		SizeBytes:        row.SizeBytes,
 		S3Key:            row.S3Key,
-		UploadStatus:     domain.Status(row.UploadStatus),
-		ProcessingStatus: domain.Status(row.ProcessingStatus),
+		UploadStatus:     domain.UploadStatus(row.UploadStatus),
+		ProcessingStatus: domain.ProcessingStatus(row.ProcessingStatus),
 		CreatedAt:        row.CreatedAt.Time,
 		UpdatedAt:        row.UpdatedAt.Time,
 	}

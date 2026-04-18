@@ -101,6 +101,34 @@ func (mr *MockAvatarRepositoryMockRecorder) GetLatestByUserID(ctx, userID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestByUserID", reflect.TypeOf((*MockAvatarRepository)(nil).GetLatestByUserID), ctx, userID)
 }
 
+// SetUploadFailed mocks base method.
+func (m *MockAvatarRepository) SetUploadFailed(ctx context.Context, id uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUploadFailed", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUploadFailed indicates an expected call of SetUploadFailed.
+func (mr *MockAvatarRepositoryMockRecorder) SetUploadFailed(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUploadFailed", reflect.TypeOf((*MockAvatarRepository)(nil).SetUploadFailed), ctx, id)
+}
+
+// SetUploaded mocks base method.
+func (m *MockAvatarRepository) SetUploaded(ctx context.Context, id uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUploaded", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUploaded indicates an expected call of SetUploaded.
+func (mr *MockAvatarRepositoryMockRecorder) SetUploaded(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUploaded", reflect.TypeOf((*MockAvatarRepository)(nil).SetUploaded), ctx, id)
+}
+
 // SoftDelete mocks base method.
 func (m *MockAvatarRepository) SoftDelete(ctx context.Context, id uuid.UUID, userID string) error {
 	m.ctrl.T.Helper()
@@ -116,7 +144,7 @@ func (mr *MockAvatarRepositoryMockRecorder) SoftDelete(ctx, id, userID any) *gom
 }
 
 // UpdateProcessingStatus mocks base method.
-func (m *MockAvatarRepository) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status domain.Status, thumbnails map[string]string) error {
+func (m *MockAvatarRepository) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status domain.ProcessingStatus, thumbnails map[string]string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateProcessingStatus", ctx, id, status, thumbnails)
 	ret0, _ := ret[0].(error)

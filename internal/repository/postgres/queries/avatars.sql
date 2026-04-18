@@ -1,6 +1,20 @@
 -- name: CreateAvatar :one
-INSERT INTO avatars (id, user_id, file_name, mime_type, size_bytes, s3_key, upload_status, processing_status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;
+INSERT INTO avatars (id, user_id, file_name, mime_type, size_bytes, s3_key)
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
+
+-- name: SetAvatarUploaded :exec
+UPDATE avatars
+SET upload_status = 'uploaded',
+    updated_at    = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL;
+
+-- name: SetAvatarUploadFailed :exec
+UPDATE avatars
+SET upload_status = 'failed',
+    updated_at    = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL;
 
 -- name: GetAvatarByID :one
 SELECT *

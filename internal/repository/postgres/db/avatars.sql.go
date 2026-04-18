@@ -12,19 +12,17 @@ import (
 )
 
 const createAvatar = `-- name: CreateAvatar :one
-INSERT INTO avatars (id, user_id, file_name, mime_type, size_bytes, s3_key, upload_status, processing_status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at
+INSERT INTO avatars (id, user_id, file_name, mime_type, size_bytes, s3_key)
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at
 `
 
 type CreateAvatarParams struct {
-	ID               pgtype.UUID
-	UserID           string
-	FileName         string
-	MimeType         string
-	SizeBytes        int64
-	S3Key            string
-	UploadStatus     string
-	ProcessingStatus string
+	ID        pgtype.UUID
+	UserID    string
+	FileName  string
+	MimeType  string
+	SizeBytes int64
+	S3Key     string
 }
 
 func (q *Queries) CreateAvatar(ctx context.Context, arg CreateAvatarParams) (Avatar, error) {
@@ -35,8 +33,6 @@ func (q *Queries) CreateAvatar(ctx context.Context, arg CreateAvatarParams) (Ava
 		arg.MimeType,
 		arg.SizeBytes,
 		arg.S3Key,
-		arg.UploadStatus,
-		arg.ProcessingStatus,
 	)
 	var i Avatar
 	err := row.Scan(
@@ -57,7 +53,10 @@ func (q *Queries) CreateAvatar(ctx context.Context, arg CreateAvatarParams) (Ava
 }
 
 const getAvatarByID = `-- name: GetAvatarByID :one
-SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at FROM avatars WHERE id = $1 AND deleted_at IS NULL
+SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at
+FROM avatars
+WHERE id = $1
+  AND deleted_at IS NULL
 `
 
 func (q *Queries) GetAvatarByID(ctx context.Context, id pgtype.UUID) (Avatar, error) {
@@ -81,8 +80,10 @@ func (q *Queries) GetAvatarByID(ctx context.Context, id pgtype.UUID) (Avatar, er
 }
 
 const getAvatarsByUserID = `-- name: GetAvatarsByUserID :many
-SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at FROM avatars
-WHERE user_id = $1 AND deleted_at IS NULL
+SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at
+FROM avatars
+WHERE user_id = $1
+  AND deleted_at IS NULL
 ORDER BY created_at DESC
 `
 
@@ -120,10 +121,11 @@ func (q *Queries) GetAvatarsByUserID(ctx context.Context, userID string) ([]Avat
 }
 
 const getLatestAvatarByUserID = `-- name: GetLatestAvatarByUserID :one
-SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at FROM avatars
-WHERE user_id = $1 AND deleted_at IS NULL
-ORDER BY created_at DESC
-LIMIT 1
+SELECT id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at
+FROM avatars
+WHERE user_id = $1
+  AND deleted_at IS NULL
+ORDER BY created_at DESC LIMIT 1
 `
 
 func (q *Queries) GetLatestAvatarByUserID(ctx context.Context, userID string) (Avatar, error) {
@@ -146,9 +148,39 @@ func (q *Queries) GetLatestAvatarByUserID(ctx context.Context, userID string) (A
 	return i, err
 }
 
+const setAvatarUploadFailed = `-- name: SetAvatarUploadFailed :exec
+UPDATE avatars
+SET upload_status = 'failed',
+    updated_at    = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+func (q *Queries) SetAvatarUploadFailed(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, setAvatarUploadFailed, id)
+	return err
+}
+
+const setAvatarUploaded = `-- name: SetAvatarUploaded :exec
+UPDATE avatars
+SET upload_status = 'uploaded',
+    updated_at    = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+func (q *Queries) SetAvatarUploaded(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, setAvatarUploaded, id)
+	return err
+}
+
 const softDeleteAvatar = `-- name: SoftDeleteAvatar :execrows
-UPDATE avatars SET deleted_at = NOW(), updated_at = NOW()
-WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+UPDATE avatars
+SET deleted_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1
+  AND user_id = $2
+  AND deleted_at IS NULL
 `
 
 type SoftDeleteAvatarParams struct {
@@ -166,13 +198,16 @@ func (q *Queries) SoftDeleteAvatar(ctx context.Context, arg SoftDeleteAvatarPara
 
 const updateProcessingStatus = `-- name: UpdateProcessingStatus :exec
 UPDATE avatars
-SET processing_status = $2, thumbnail_s3_keys = $3, updated_at = NOW()
-WHERE id = $1 AND deleted_at IS NULL
+SET processing_status = $2,
+    thumbnail_s3_keys = $3,
+    updated_at        = NOW()
+WHERE id = $1
+  AND deleted_at IS NULL
 `
 
 type UpdateProcessingStatusParams struct {
 	ID               pgtype.UUID
-	ProcessingStatus string
+	ProcessingStatus ProcessingStatus
 	ThumbnailS3Keys  []byte
 }
 

@@ -69,6 +69,26 @@ services:
     networks:
       - goavatar-network
 
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: goavatar-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+sbwt none +sbwtdcpu none +sbwtdio none"
+      RABBITMQ_DEFAULT_USER: rabbitmq
+      RABBITMQ_DEFAULT_PASS: rabbitmq
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - goavatar-network
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   server:
     build:
       context: .
@@ -79,11 +99,12 @@ services:
       DATABASE_URI: "postgres://goavatar:password@postgres:5432/goavatar?sslmode=disable"
       HTTP_ADDRESS: "0.0.0.0:8080"
       LOG_LEVEL: "debug"
-      S3_ENDPOINT: "http://minio:9000"
+      S3_ENDPOINT: "minio:9000"
       S3_BUCKET: "avatars"
       S3_ACCESS_KEY: "minioadmin"
       S3_SECRET_KEY: "minioadmin"
       S3_USE_SSL: "false"
+      RABBITMQ_URL: "amqp://rabbitmq:rabbitmq@rabbitmq:5672/"
     ports:
       - "8080:8080"
     depends_on:
@@ -91,6 +112,8 @@ services:
         condition: service_completed_successfully
       minio-setup:
         condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
     networks:
       - goavatar-network
     restart: unless-stopped
@@ -99,6 +122,8 @@ volumes:
   postgres_data:
     driver: local
   minio_data:
+    driver: local
+  rabbitmq_data:
     driver: local
 
 networks:

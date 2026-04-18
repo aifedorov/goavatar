@@ -6,16 +6,21 @@ import (
 	"fmt"
 	"net/http"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/aifedorov/goavatar/internal/rabbitmq"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 
 	"github.com/aifedorov/goavatar/internal/config"
 	"github.com/aifedorov/goavatar/internal/handlers"
 	"github.com/aifedorov/goavatar/internal/repository/postgres"
+	"github.com/aifedorov/goavatar/internal/repository/s3"
 	"github.com/aifedorov/goavatar/internal/services"
 )
 
@@ -47,15 +52,55 @@ func (a *App) Run() error {
 
 	avatarRepo := postgres.NewAvatarRepo(pool)
 
-	// TODO: replace nil with FileStorage implementation (MinIO/S3)
-	avatarService := services.NewAvatarService(avatarRepo, nil, nil)
+	s3Client, err := s3.NewClient(a.cfg.S3Endpoint, a.cfg.S3AccessKey, a.cfg.S3SecretKey, a.cfg.S3UseSSL)
+	if err != nil {
+		return fmt.Errorf("init s3 client: %w", err)
+	}
+	fileStorage := s3.NewStorage(s3Client, a.cfg.S3Bucket)
+
+	s3KeyFunc := func(id uuid.UUID, _ string, fileName string) string {
+		return fmt.Sprintf("originals/%s%s", id, filepath.Ext(fileName))
+	}
+
+	conn, err := amqp.Dial(a.cfg.RabbitMQURL)
+	if err != nil {
+		a.logger.Error("connect to RabbitMQ", zap.Error(err))
+	}
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	if err != nil {
+		a.logger.Error("create RabbitMQ channel", zap.Error(err))
+	}
+	defer ch.Close()
+
+	if err := rabbitmq.DeclareAvatarTopology(ch); err != nil {
+		a.logger.Error("declare RabbitMQ topology", zap.Error(err))
+	}
+
+	publisher := rabbitmq.NewAvatarEventPublisher(ch)
+
+	avatarService := services.NewAvatarService(avatarRepo, fileStorage, s3KeyFunc, publisher)
 	avatarHandler := handlers.NewAvatarHandler(avatarService, avatarService, avatarService, avatarService, a.logger)
 
+	healthHandler := handlers.NewHealthHandler(a.logger, 2*time.Second,
+		handlers.HealthCheck{Name: "postgres", Check: pool.Ping},
+		handlers.HealthCheck{Name: "s3", Check: fileStorage.Ping},
+	)
+
 	r := chi.NewRouter()
+	r.Get("/health", healthHandler.Handle)
 	r.Post("/api/v1/avatars", avatarHandler.Upload)
 	r.Get("/api/v1/avatars/{avatar_id}", avatarHandler.GetImage)
 	r.Get("/api/v1/avatars/{avatar_id}/metadata", avatarHandler.GetMetadata)
+	r.Delete("/api/v1/avatars/{avatar_id}", avatarHandler.DeleteAvatar)
 	r.Get("/api/v1/users/{user_id}/avatar", avatarHandler.GetUserAvatar)
+	r.Delete("/api/v1/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
+	r.Get("/api/v1/users/{user_id}/avatars", avatarHandler.ListUserAvatars)
+
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/app/web/static/index.html")
+	})
 
 	srv := &http.Server{
 		Addr:    a.cfg.HTTPAddress,

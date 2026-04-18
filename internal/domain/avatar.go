@@ -14,8 +14,8 @@ type Avatar struct {
 	SizeBytes        int64
 	S3Key            string
 	ThumbnailS3Keys  map[string]string
-	UploadStatus     Status
-	ProcessingStatus Status
+	UploadStatus     UploadStatus
+	ProcessingStatus ProcessingStatus
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	DeletedAt        *time.Time
