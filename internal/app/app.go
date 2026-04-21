@@ -64,18 +64,18 @@ func (a *App) Run() error {
 
 	conn, err := amqp.Dial(a.cfg.RabbitMQURL)
 	if err != nil {
-		a.logger.Error("connect to RabbitMQ", zap.Error(err))
+		return fmt.Errorf("connect to RabbitMQ: %w", err)
 	}
 	defer conn.Close()
 
 	ch, err := conn.Channel()
 	if err != nil {
-		a.logger.Error("create RabbitMQ channel", zap.Error(err))
+		return fmt.Errorf("create RabbitMQ channel: %w", err)
 	}
 	defer ch.Close()
 
 	if err := rabbitmq.DeclareAvatarTopology(ch); err != nil {
-		a.logger.Error("declare RabbitMQ topology", zap.Error(err))
+		return fmt.Errorf("declare RabbitMQ topology: %w", err)
 	}
 
 	publisher := rabbitmq.NewAvatarEventPublisher(ch)
@@ -108,11 +108,7 @@ func (a *App) Run() error {
 	r.Delete("/api/v1/users/{user_id}/avatar", avatarHandler.DeleteUserAvatar)
 	r.Get("/api/v1/users/{user_id}/avatars", avatarHandler.ListUserAvatars)
 
-	staticDir := "web/static"
-	if a.cfg.StaticDir != "" {
-		staticDir = a.cfg.StaticDir
-	}
-	r.Handle("/*", http.FileServer(http.Dir(staticDir)))
+	r.Handle("/*", http.FileServer(http.Dir(a.cfg.StaticDir)))
 
 	srv := &http.Server{
 		Addr:    a.cfg.HTTPAddress,

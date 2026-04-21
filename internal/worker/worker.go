@@ -98,3 +98,10 @@ func (w *Worker) HandleDeleteEvent(ctx context.Context, event domain.AvatarDelet
 	}
 	return nil
 }
+
+func (w *Worker) MarkProcessingFailed(ctx context.Context, avatarID uuid.UUID) error {
+	if err := w.repo.UpdateProcessingStatus(ctx, avatarID, domain.ProcessingStatusFailed, nil); err != nil {
+		return fmt.Errorf("mark processing failed: %w", err)
+	}
+	return nil
+}

@@ -142,7 +142,12 @@ func (a *App) Run() error {
 					}, func() {
 						avatarID, parseErr := uuid.Parse(event.AvatarID)
 						if parseErr == nil {
-							_ = w.repo.UpdateProcessingStatus(ctx, avatarID, domain.ProcessingStatusFailed, nil)
+							if markErr := w.MarkProcessingFailed(ctx, avatarID); markErr != nil {
+								a.logger.Error("mark processing failed",
+									zap.String("avatar_id", event.AvatarID),
+									zap.Error(markErr),
+								)
+							}
 						}
 					}); pubErr != nil {
 						a.logger.Error("publish to dlq", zap.Error(pubErr))
