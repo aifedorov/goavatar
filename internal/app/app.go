@@ -17,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/aifedorov/goavatar/internal/config"
@@ -107,6 +109,7 @@ func (a *App) Run() error {
 	)
 
 	r := chi.NewRouter()
+	r.Use(routeTagMiddleware)
 	r.Get("/health", healthHandler.Handle)
 	r.Post("/api/v1/avatars", avatarHandler.Upload)
 	r.Get("/api/v1/avatars/{avatar_id}", avatarHandler.GetImage)
@@ -119,8 +122,12 @@ func (a *App) Run() error {
 	r.Handle("/*", http.FileServer(http.Dir(a.cfg.StaticDir)))
 
 	srv := &http.Server{
-		Addr:    a.cfg.HTTPAddress,
-		Handler: otelhttp.NewHandler(r, "http.server"),
+		Addr: a.cfg.HTTPAddress,
+		Handler: otelhttp.NewHandler(r, "http.server",
+			otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
+				return req.Method + " " + req.URL.Path
+			}),
+		),
 	}
 
 	go func() {
@@ -139,4 +146,21 @@ func (a *App) Run() error {
 	}
 
 	return nil
+}
+
+func routeTagMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		next.ServeHTTP(w, req)
+		rctx := chi.RouteContext(req.Context())
+		if rctx == nil {
+			return
+		}
+		pattern := rctx.RoutePattern()
+		if pattern == "" {
+			return
+		}
+		span := trace.SpanFromContext(req.Context())
+		span.SetName(req.Method + " " + pattern)
+		span.SetAttributes(attribute.String("http.route", pattern))
+	})
 }
