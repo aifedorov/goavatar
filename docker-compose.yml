@@ -106,6 +106,9 @@ services:
       S3_USE_SSL: "false"
       RABBITMQ_URL: "amqp://rabbitmq:rabbitmq@rabbitmq:5672/"
       STATIC_DIR: "/app/web/static"
+      OTEL_SERVICE_NAME: "goavatar-server"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
     ports:
       - "8080:8080"
     depends_on:
@@ -115,6 +118,8 @@ services:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
       - goavatar-network
     restart: unless-stopped
@@ -135,6 +140,9 @@ services:
       S3_SECRET_KEY: "minioadmin"
       S3_USE_SSL: "false"
       RABBITMQ_URL: "amqp://rabbitmq:rabbitmq@rabbitmq:5672/"
+      OTEL_SERVICE_NAME: "goavatar-worker"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -142,6 +150,114 @@ services:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
+    networks:
+      - goavatar-network
+    restart: unless-stopped
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.0
+    container_name: goavatar-opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - goavatar-network
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: goavatar-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+    networks:
+      - goavatar-network
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    container_name: goavatar-otel-collector
+    command: [ "--config=/etc/otel-collector-config.yaml" ]
+    volumes:
+      - ./deploy/otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    networks:
+      - goavatar-network
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: goavatar-node-exporter
+    command:
+      - --path.rootfs=/host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - goavatar-network
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: goavatar-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - node-exporter
+      - otel-collector
+    networks:
+      - goavatar-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: goavatar-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-opensearch-datasource
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - jaeger
+      - opensearch
     networks:
       - goavatar-network
     restart: unless-stopped
@@ -152,6 +268,12 @@ volumes:
   minio_data:
     driver: local
   rabbitmq_data:
+    driver: local
+  opensearch_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local
 
 networks:

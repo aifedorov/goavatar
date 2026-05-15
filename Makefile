@@ -1,4 +1,4 @@
-.PHONY: server worker test test-coverage lint fmt all generate sqlc docker-up docker-down docker-clean
+.PHONY: server worker test test-coverage lint fmt all generate sqlc docker-up docker-down docker-clean obs-up
 
 # --- Build & Run ---
 
@@ -44,6 +44,9 @@ docker-down:
 
 docker-clean:
 	docker-compose down -v && docker volume prune -f
+
+obs-up:
+	docker-compose up -d opensearch jaeger otel-collector node-exporter prometheus grafana
 
 # --- Help ---
 
