@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/aifedorov/goavatar/internal/rabbitmq"
+	"github.com/exaring/otelpgx"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 
 	"github.com/aifedorov/goavatar/internal/config"
@@ -40,7 +42,13 @@ func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, a.cfg.DatabaseURI)
+	pgxCfg, err := pgxpool.ParseConfig(a.cfg.DatabaseURI)
+	if err != nil {
+		return fmt.Errorf("parse database config: %w", err)
+	}
+	pgxCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+
+	pool, err := pgxpool.NewWithConfig(ctx, pgxCfg)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
@@ -112,7 +120,7 @@ func (a *App) Run() error {
 
 	srv := &http.Server{
 		Addr:    a.cfg.HTTPAddress,
-		Handler: r,
+		Handler: otelhttp.NewHandler(r, "http.server"),
 	}
 
 	go func() {

@@ -8,9 +8,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/exaring/otelpgx"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/aifedorov/goavatar/internal/config"
@@ -19,7 +24,10 @@ import (
 	"github.com/aifedorov/goavatar/internal/repository/postgres"
 	"github.com/aifedorov/goavatar/internal/repository/s3"
 	"github.com/aifedorov/goavatar/pkg/imgutil"
+	"github.com/aifedorov/goavatar/pkg/telemetry"
 )
+
+const tracerName = "github.com/aifedorov/goavatar/internal/worker"
 
 const (
 	prefetch          = 2
@@ -41,7 +49,13 @@ func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, a.cfg.DatabaseURI)
+	pgxCfg, err := pgxpool.ParseConfig(a.cfg.DatabaseURI)
+	if err != nil {
+		return fmt.Errorf("parse database config: %w", err)
+	}
+	pgxCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+
+	pool, err := pgxpool.NewWithConfig(ctx, pgxCfg)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
@@ -111,54 +125,61 @@ func (a *App) Run() error {
 	go func() {
 		defer close(uploadDone)
 		for delivery := range uploadDeliveries {
-			a.logger.Info("received upload delivery",
-				zap.String("message_id", delivery.MessageId),
-			)
+			func() {
+				msgCtx, span := startConsumerSpan(ctx, rabbitmq.AvatarUploadQueueName, delivery)
+				defer span.End()
 
-			var event domain.AvatarUploadEvent
-			if err := json.Unmarshal(delivery.Body, &event); err != nil {
-				a.logger.Error("unmarshal upload event", zap.Error(err))
-				_ = delivery.Nack(false, false)
-				continue
-			}
-
-			if err := w.HandleUploadEvent(ctx, event); err != nil {
-				retry := retryCount(delivery)
-				a.logger.Error("handle upload event",
-					zap.String("avatar_id", event.AvatarID),
-					zap.Error(err),
-					zap.Int64("retry", retry),
+				a.logger.Info("received upload delivery",
+					zap.String("message_id", delivery.MessageId),
 				)
-				if retry < int64(len(rabbitmq.UploadRetryLevels)) {
-					if pubErr := republishOrRequeue(delivery, func() error {
-						return publishRetryTo(ctx, ch, delivery, retry, rabbitmq.UploadRetryLevels)
-					}, nil); pubErr != nil {
-						a.logger.Error("publish retry", zap.Error(pubErr))
-						continue
-					}
-				} else {
-					if pubErr := republishOrRequeue(delivery, func() error {
-						return publishToDLQ(ctx, ch, delivery, rabbitmq.AvatarUploadDLQKey)
-					}, func() {
-						avatarID, parseErr := uuid.Parse(event.AvatarID)
-						if parseErr == nil {
-							if markErr := w.MarkProcessingFailed(ctx, avatarID); markErr != nil {
-								a.logger.Error("mark processing failed",
-									zap.String("avatar_id", event.AvatarID),
-									zap.Error(markErr),
-								)
-							}
-						}
-					}); pubErr != nil {
-						a.logger.Error("publish to dlq", zap.Error(pubErr))
-						continue
-					}
-				}
-				continue
-			}
 
-			a.logger.Info("processed upload event", zap.String("avatar_id", event.AvatarID))
-			_ = delivery.Ack(false)
+				var event domain.AvatarUploadEvent
+				if err := json.Unmarshal(delivery.Body, &event); err != nil {
+					a.logger.Error("unmarshal upload event", zap.Error(err))
+					recordSpanError(span, err)
+					_ = delivery.Nack(false, false)
+					return
+				}
+
+				if err := w.HandleUploadEvent(msgCtx, event); err != nil {
+					recordSpanError(span, err)
+					retry := retryCount(delivery)
+					a.logger.Error("handle upload event",
+						zap.String("avatar_id", event.AvatarID),
+						zap.Error(err),
+						zap.Int64("retry", retry),
+					)
+					if retry < int64(len(rabbitmq.UploadRetryLevels)) {
+						if pubErr := republishOrRequeue(delivery, func() error {
+							return publishRetryTo(msgCtx, ch, delivery, retry, rabbitmq.UploadRetryLevels)
+						}, nil); pubErr != nil {
+							a.logger.Error("publish retry", zap.Error(pubErr))
+							return
+						}
+					} else {
+						if pubErr := republishOrRequeue(delivery, func() error {
+							return publishToDLQ(msgCtx, ch, delivery, rabbitmq.AvatarUploadDLQKey)
+						}, func() {
+							avatarID, parseErr := uuid.Parse(event.AvatarID)
+							if parseErr == nil {
+								if markErr := w.MarkProcessingFailed(msgCtx, avatarID); markErr != nil {
+									a.logger.Error("mark processing failed",
+										zap.String("avatar_id", event.AvatarID),
+										zap.Error(markErr),
+									)
+								}
+							}
+						}); pubErr != nil {
+							a.logger.Error("publish to dlq", zap.Error(pubErr))
+							return
+						}
+					}
+					return
+				}
+
+				a.logger.Info("processed upload event", zap.String("avatar_id", event.AvatarID))
+				_ = delivery.Ack(false)
+			}()
 		}
 	}()
 
@@ -166,44 +187,51 @@ func (a *App) Run() error {
 	go func() {
 		defer close(deleteDone)
 		for delivery := range deleteDeliveries {
-			a.logger.Info("received delete delivery",
-				zap.String("message_id", delivery.MessageId),
-			)
+			func() {
+				msgCtx, span := startConsumerSpan(ctx, rabbitmq.AvatarDeleteQueueName, delivery)
+				defer span.End()
 
-			var event domain.AvatarDeleteEvent
-			if err := json.Unmarshal(delivery.Body, &event); err != nil {
-				a.logger.Error("unmarshal delete event", zap.Error(err))
-				_ = delivery.Nack(false, false)
-				continue
-			}
-
-			if err := w.HandleDeleteEvent(ctx, event); err != nil {
-				retry := retryCount(delivery)
-				a.logger.Error("handle delete event",
-					zap.String("avatar_id", event.AvatarID),
-					zap.Error(err),
-					zap.Int64("retry", retry),
+				a.logger.Info("received delete delivery",
+					zap.String("message_id", delivery.MessageId),
 				)
-				if retry < int64(len(rabbitmq.DeleteRetryLevels)) {
-					if pubErr := republishOrRequeue(delivery, func() error {
-						return publishRetryTo(ctx, ch, delivery, retry, rabbitmq.DeleteRetryLevels)
-					}, nil); pubErr != nil {
-						a.logger.Error("publish delete retry", zap.Error(pubErr))
-						continue
-					}
-				} else {
-					if pubErr := republishOrRequeue(delivery, func() error {
-						return publishToDLQ(ctx, ch, delivery, rabbitmq.AvatarDeleteDLQKey)
-					}, nil); pubErr != nil {
-						a.logger.Error("publish to delete dlq", zap.Error(pubErr))
-						continue
-					}
-				}
-				continue
-			}
 
-			a.logger.Info("processed delete event", zap.String("avatar_id", event.AvatarID))
-			_ = delivery.Ack(false)
+				var event domain.AvatarDeleteEvent
+				if err := json.Unmarshal(delivery.Body, &event); err != nil {
+					a.logger.Error("unmarshal delete event", zap.Error(err))
+					recordSpanError(span, err)
+					_ = delivery.Nack(false, false)
+					return
+				}
+
+				if err := w.HandleDeleteEvent(msgCtx, event); err != nil {
+					recordSpanError(span, err)
+					retry := retryCount(delivery)
+					a.logger.Error("handle delete event",
+						zap.String("avatar_id", event.AvatarID),
+						zap.Error(err),
+						zap.Int64("retry", retry),
+					)
+					if retry < int64(len(rabbitmq.DeleteRetryLevels)) {
+						if pubErr := republishOrRequeue(delivery, func() error {
+							return publishRetryTo(msgCtx, ch, delivery, retry, rabbitmq.DeleteRetryLevels)
+						}, nil); pubErr != nil {
+							a.logger.Error("publish delete retry", zap.Error(pubErr))
+							return
+						}
+					} else {
+						if pubErr := republishOrRequeue(delivery, func() error {
+							return publishToDLQ(msgCtx, ch, delivery, rabbitmq.AvatarDeleteDLQKey)
+						}, nil); pubErr != nil {
+							a.logger.Error("publish to delete dlq", zap.Error(pubErr))
+							return
+						}
+					}
+					return
+				}
+
+				a.logger.Info("processed delete event", zap.String("avatar_id", event.AvatarID))
+				_ = delivery.Ack(false)
+			}()
 		}
 	}()
 
@@ -225,6 +253,26 @@ func (a *App) Run() error {
 	}
 
 	return nil
+}
+
+func startConsumerSpan(ctx context.Context, queueName string, delivery amqp.Delivery) (context.Context, trace.Span) {
+	ctx = otel.GetTextMapPropagator().Extract(ctx,
+		telemetry.AMQPHeadersCarrier(delivery.Headers))
+	return otel.Tracer(tracerName).Start(ctx,
+		queueName+" process",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "rabbitmq"),
+			attribute.String("messaging.destination.name", queueName),
+			attribute.String("messaging.operation", "process"),
+			attribute.String("messaging.message.id", delivery.MessageId),
+		),
+	)
+}
+
+func recordSpanError(span trace.Span, err error) {
+	span.SetStatus(codes.Error, err.Error())
+	span.RecordError(err)
 }
 
 func retryCount(d amqp.Delivery) int64 {
@@ -250,13 +298,16 @@ func publishToDLQ(ctx context.Context, ch *amqp.Channel, d amqp.Delivery, dlqKey
 
 func publishRetryTo(ctx context.Context, ch *amqp.Channel, d amqp.Delivery, retry int64, levels []rabbitmq.RetryLevel) error {
 	level := levels[retry]
+	headers := amqp.Table{}
+	for k, v := range d.Headers {
+		headers[k] = v
+	}
+	headers[rabbitmq.HeaderRetryCount] = retry + 1
 	return ch.PublishWithContext(ctx, "", level.QueueName, false, false, amqp.Publishing{
 		MessageId:    d.MessageId,
 		Body:         d.Body,
 		DeliveryMode: amqp.Persistent,
-		Headers: amqp.Table{
-			rabbitmq.HeaderRetryCount: retry + 1,
-		},
+		Headers:      headers,
 	})
 }
 

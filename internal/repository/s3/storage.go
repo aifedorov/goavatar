@@ -7,6 +7,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/aifedorov/goavatar/internal/domain"
 )
@@ -17,9 +18,14 @@ type Storage struct {
 }
 
 func NewClient(endpoint, accessKey, secretKey string, useSSL bool) (*minio.Client, error) {
+	baseTransport, err := minio.DefaultTransport(useSSL)
+	if err != nil {
+		return nil, fmt.Errorf("create minio transport: %w", err)
+	}
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: useSSL,
+		Creds:     credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure:    useSSL,
+		Transport: otelhttp.NewTransport(baseTransport),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create minio client: %w", err)

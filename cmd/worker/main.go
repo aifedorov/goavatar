@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/aifedorov/goavatar/internal/config"
 	"github.com/aifedorov/goavatar/internal/worker"
 	"github.com/aifedorov/goavatar/pkg/logger"
+	"github.com/aifedorov/goavatar/pkg/telemetry"
 )
 
 func main() {
@@ -23,6 +26,17 @@ func main() {
 	}
 	defer func() {
 		_ = log.Sync()
+	}()
+
+	shutdownTracing, err := telemetry.SetupTracing(context.Background())
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize tracing: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(ctx)
 	}()
 
 	app := worker.NewApp(cfg, log)
