@@ -19,14 +19,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	shutdownLogs, err := telemetry.SetupLogs(context.Background())
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize log exporter: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownLogs(ctx)
+	}()
+
 	log, err := logger.New(cfg.LogLevel)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer func() {
-		_ = log.Sync()
-	}()
 
 	shutdownTracing, err := telemetry.SetupTracing(context.Background())
 	if err != nil {

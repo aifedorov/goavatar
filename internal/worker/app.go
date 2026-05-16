@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os/signal"
 	"syscall"
 	"time"
@@ -16,7 +17,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 
 	"github.com/aifedorov/goavatar/internal/config"
 	"github.com/aifedorov/goavatar/internal/domain"
@@ -38,10 +38,10 @@ const (
 
 type App struct {
 	cfg    *config.Config
-	logger *zap.Logger
+	logger *slog.Logger
 }
 
-func NewApp(cfg *config.Config, logger *zap.Logger) *App {
+func NewApp(cfg *config.Config, logger *slog.Logger) *App {
 	return &App{cfg: cfg, logger: logger}
 }
 
@@ -115,10 +115,10 @@ func (a *App) Run() error {
 		return fmt.Errorf("start delete consumer: %w", err)
 	}
 
-	a.logger.Info("worker started",
-		zap.String("upload_queue", rabbitmq.AvatarUploadQueueName),
-		zap.String("delete_queue", rabbitmq.AvatarDeleteQueueName),
-		zap.Int("prefetch", prefetch),
+	a.logger.InfoContext(ctx, "worker started",
+		slog.String("upload_queue", rabbitmq.AvatarUploadQueueName),
+		slog.String("delete_queue", rabbitmq.AvatarDeleteQueueName),
+		slog.Int("prefetch", prefetch),
 	)
 
 	uploadDone := make(chan struct{})
@@ -129,13 +129,13 @@ func (a *App) Run() error {
 				msgCtx, span := startConsumerSpan(ctx, rabbitmq.AvatarUploadQueueName, delivery)
 				defer span.End()
 
-				a.logger.Info("received upload delivery",
-					zap.String("message_id", delivery.MessageId),
+				a.logger.InfoContext(msgCtx, "received upload delivery",
+					slog.String("message_id", delivery.MessageId),
 				)
 
 				var event domain.AvatarUploadEvent
 				if err := json.Unmarshal(delivery.Body, &event); err != nil {
-					a.logger.Error("unmarshal upload event", zap.Error(err))
+					a.logger.ErrorContext(msgCtx, "unmarshal upload event", slog.Any("error", err))
 					recordSpanError(span, err)
 					_ = delivery.Nack(false, false)
 					return
@@ -144,16 +144,16 @@ func (a *App) Run() error {
 				if err := w.HandleUploadEvent(msgCtx, event); err != nil {
 					recordSpanError(span, err)
 					retry := retryCount(delivery)
-					a.logger.Error("handle upload event",
-						zap.String("avatar_id", event.AvatarID),
-						zap.Error(err),
-						zap.Int64("retry", retry),
+					a.logger.ErrorContext(msgCtx, "handle upload event",
+						slog.String("avatar_id", event.AvatarID),
+						slog.Any("error", err),
+						slog.Int64("retry", retry),
 					)
 					if retry < int64(len(rabbitmq.UploadRetryLevels)) {
 						if pubErr := republishOrRequeue(delivery, func() error {
 							return publishRetryTo(msgCtx, ch, delivery, retry, rabbitmq.UploadRetryLevels)
 						}, nil); pubErr != nil {
-							a.logger.Error("publish retry", zap.Error(pubErr))
+							a.logger.ErrorContext(msgCtx, "publish retry", slog.Any("error", pubErr))
 							return
 						}
 					} else {
@@ -163,21 +163,21 @@ func (a *App) Run() error {
 							avatarID, parseErr := uuid.Parse(event.AvatarID)
 							if parseErr == nil {
 								if markErr := w.MarkProcessingFailed(msgCtx, avatarID); markErr != nil {
-									a.logger.Error("mark processing failed",
-										zap.String("avatar_id", event.AvatarID),
-										zap.Error(markErr),
+									a.logger.ErrorContext(msgCtx, "mark processing failed",
+										slog.String("avatar_id", event.AvatarID),
+										slog.Any("error", markErr),
 									)
 								}
 							}
 						}); pubErr != nil {
-							a.logger.Error("publish to dlq", zap.Error(pubErr))
+							a.logger.ErrorContext(msgCtx, "publish to dlq", slog.Any("error", pubErr))
 							return
 						}
 					}
 					return
 				}
 
-				a.logger.Info("processed upload event", zap.String("avatar_id", event.AvatarID))
+				a.logger.InfoContext(msgCtx, "processed upload event", slog.String("avatar_id", event.AvatarID))
 				_ = delivery.Ack(false)
 			}()
 		}
@@ -191,13 +191,13 @@ func (a *App) Run() error {
 				msgCtx, span := startConsumerSpan(ctx, rabbitmq.AvatarDeleteQueueName, delivery)
 				defer span.End()
 
-				a.logger.Info("received delete delivery",
-					zap.String("message_id", delivery.MessageId),
+				a.logger.InfoContext(msgCtx, "received delete delivery",
+					slog.String("message_id", delivery.MessageId),
 				)
 
 				var event domain.AvatarDeleteEvent
 				if err := json.Unmarshal(delivery.Body, &event); err != nil {
-					a.logger.Error("unmarshal delete event", zap.Error(err))
+					a.logger.ErrorContext(msgCtx, "unmarshal delete event", slog.Any("error", err))
 					recordSpanError(span, err)
 					_ = delivery.Nack(false, false)
 					return
@@ -206,37 +206,37 @@ func (a *App) Run() error {
 				if err := w.HandleDeleteEvent(msgCtx, event); err != nil {
 					recordSpanError(span, err)
 					retry := retryCount(delivery)
-					a.logger.Error("handle delete event",
-						zap.String("avatar_id", event.AvatarID),
-						zap.Error(err),
-						zap.Int64("retry", retry),
+					a.logger.ErrorContext(msgCtx, "handle delete event",
+						slog.String("avatar_id", event.AvatarID),
+						slog.Any("error", err),
+						slog.Int64("retry", retry),
 					)
 					if retry < int64(len(rabbitmq.DeleteRetryLevels)) {
 						if pubErr := republishOrRequeue(delivery, func() error {
 							return publishRetryTo(msgCtx, ch, delivery, retry, rabbitmq.DeleteRetryLevels)
 						}, nil); pubErr != nil {
-							a.logger.Error("publish delete retry", zap.Error(pubErr))
+							a.logger.ErrorContext(msgCtx, "publish delete retry", slog.Any("error", pubErr))
 							return
 						}
 					} else {
 						if pubErr := republishOrRequeue(delivery, func() error {
 							return publishToDLQ(msgCtx, ch, delivery, rabbitmq.AvatarDeleteDLQKey)
 						}, nil); pubErr != nil {
-							a.logger.Error("publish to delete dlq", zap.Error(pubErr))
+							a.logger.ErrorContext(msgCtx, "publish to delete dlq", slog.Any("error", pubErr))
 							return
 						}
 					}
 					return
 				}
 
-				a.logger.Info("processed delete event", zap.String("avatar_id", event.AvatarID))
+				a.logger.InfoContext(msgCtx, "processed delete event", slog.String("avatar_id", event.AvatarID))
 				_ = delivery.Ack(false)
 			}()
 		}
 	}()
 
 	<-ctx.Done()
-	a.logger.Info("shutdown signal received, draining")
+	a.logger.InfoContext(ctx, "shutdown signal received, draining")
 
 	_ = ch.Cancel(uploadConsumerTag, false)
 	_ = ch.Cancel(deleteConsumerTag, false)
@@ -244,12 +244,12 @@ func (a *App) Run() error {
 	select {
 	case <-uploadDone:
 	case <-time.After(shutdownTimeout):
-		a.logger.Warn("upload drain timeout")
+		a.logger.WarnContext(ctx, "upload drain timeout")
 	}
 	select {
 	case <-deleteDone:
 	case <-time.After(shutdownTimeout):
-		a.logger.Warn("delete drain timeout")
+		a.logger.WarnContext(ctx, "delete drain timeout")
 	}
 
 	return nil

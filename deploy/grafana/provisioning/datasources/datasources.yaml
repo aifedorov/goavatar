@@ -10,12 +10,25 @@ datasources:
     editable: true
 
   - name: Jaeger
+    uid: jaeger
     type: jaeger
     access: proxy
     url: http://jaeger:16686
     editable: true
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: opensearch
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: true
+        tags:
+          - key: service.name
+            value: service.name
+        customQuery: true
+        query: 'traceId:"$${__span.traceId}"'
 
   - name: OpenSearch
+    uid: opensearch
     type: grafana-opensearch-datasource
     access: proxy
     url: http://opensearch:9200
@@ -25,3 +38,7 @@ datasources:
       flavor: opensearch
       version: 2.17.0
       timeField: "@timestamp"
+      dataLinks:
+        - field: traceId
+          datasourceUid: jaeger
+          urlDisplayLabel: "View trace"

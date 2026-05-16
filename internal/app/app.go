@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os/signal"
 	"path/filepath"
@@ -21,7 +22,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 
 	"github.com/aifedorov/goavatar/internal/config"
 	"github.com/aifedorov/goavatar/internal/handlers"
@@ -32,10 +32,10 @@ import (
 
 type App struct {
 	cfg    *config.Config
-	logger *zap.Logger
+	logger *slog.Logger
 }
 
-func NewApp(cfg *config.Config, logger *zap.Logger) *App {
+func NewApp(cfg *config.Config, logger *slog.Logger) *App {
 	return &App{
 		cfg:    cfg,
 		logger: logger,
@@ -153,11 +153,11 @@ func (a *App) Run() error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			a.logger.Error("shutdown server", zap.Error(err))
+			a.logger.ErrorContext(shutdownCtx, "shutdown server", slog.Any("error", err))
 		}
 	}()
 
-	a.logger.Info("starting server", zap.String("address", a.cfg.HTTPAddress))
+	a.logger.InfoContext(ctx, "starting server", slog.String("address", a.cfg.HTTPAddress))
 
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("start server: %w", err)
