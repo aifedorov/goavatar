@@ -17,7 +17,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -61,6 +63,22 @@ func (a *App) Run() error {
 	}
 
 	avatarRepo := postgres.NewAvatarRepo(pool)
+
+	meter := otel.Meter("github.com/aifedorov/goavatar/internal/app")
+	if _, err := meter.Int64ObservableGauge("avatars.storage.bytes",
+		metric.WithDescription("Total storage used by avatars"),
+		metric.WithUnit("By"),
+		metric.WithInt64Callback(func(ctx context.Context, obs metric.Int64Observer) error {
+			total, err := avatarRepo.TotalStorageBytes(ctx)
+			if err != nil {
+				return err
+			}
+			obs.Observe(total)
+			return nil
+		}),
+	); err != nil {
+		return fmt.Errorf("register storage gauge: %w", err)
+	}
 
 	s3Client, err := s3.NewClient(a.cfg.S3Endpoint, a.cfg.S3AccessKey, a.cfg.S3SecretKey, a.cfg.S3UseSSL)
 	if err != nil {

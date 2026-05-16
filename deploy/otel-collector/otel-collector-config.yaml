@@ -6,6 +6,23 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+  rabbitmq:
+    endpoint: http://rabbitmq:15672
+    username: rabbitmq
+    password: rabbitmq
+    collection_interval: 15s
+
+  postgresql:
+    endpoint: postgres:5432
+    transport: tcp
+    username: goavatar
+    password: password
+    databases:
+      - goavatar
+    tls:
+      insecure: true
+    collection_interval: 15s
+
 processors:
   memory_limiter:
     check_interval: 1s
@@ -41,7 +58,7 @@ service:
       processors: [ memory_limiter, batch ]
       exporters: [ otlp/jaeger ]
     metrics:
-      receivers: [ otlp ]
+      receivers: [ otlp, rabbitmq, postgresql ]
       processors: [ memory_limiter, batch ]
       exporters: [ prometheus ]
     logs:

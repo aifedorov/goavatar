@@ -57,3 +57,8 @@ SET processing_status = $2,
     updated_at        = NOW()
 WHERE id = $1
   AND deleted_at IS NULL;
+
+-- name: GetTotalStorageBytes :one
+SELECT COALESCE(SUM(size_bytes), 0)::bigint AS total
+FROM avatars
+WHERE deleted_at IS NULL;
