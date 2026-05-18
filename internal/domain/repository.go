@@ -18,4 +18,5 @@ type AvatarRepository interface {
 	GetProcessingStatus(ctx context.Context, id uuid.UUID) (ProcessingStatus, error)
 	UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status ProcessingStatus, thumbnails map[string]string) error
 	SoftDelete(ctx context.Context, id uuid.UUID, userID string) error
+	TotalStorageBytes(ctx context.Context) (int64, error)
 }

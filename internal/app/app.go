@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os/signal"
 	"path/filepath"
@@ -11,11 +12,14 @@ import (
 	"time"
 
 	"github.com/aifedorov/goavatar/internal/rabbitmq"
+	"github.com/exaring/otelpgx"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/aifedorov/goavatar/internal/config"
 	"github.com/aifedorov/goavatar/internal/handlers"
@@ -26,10 +30,10 @@ import (
 
 type App struct {
 	cfg    *config.Config
-	logger *zap.Logger
+	logger *slog.Logger
 }
 
-func NewApp(cfg *config.Config, logger *zap.Logger) *App {
+func NewApp(cfg *config.Config, logger *slog.Logger) *App {
 	return &App{
 		cfg:    cfg,
 		logger: logger,
@@ -40,7 +44,13 @@ func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, a.cfg.DatabaseURI)
+	pgxCfg, err := pgxpool.ParseConfig(a.cfg.DatabaseURI)
+	if err != nil {
+		return fmt.Errorf("parse database config: %w", err)
+	}
+	pgxCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+
+	pool, err := pgxpool.NewWithConfig(ctx, pgxCfg)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
@@ -51,6 +61,22 @@ func (a *App) Run() error {
 	}
 
 	avatarRepo := postgres.NewAvatarRepo(pool)
+
+	meter := otel.Meter("github.com/aifedorov/goavatar/internal/app")
+	if _, err := meter.Int64ObservableGauge("avatars.storage.bytes",
+		metric.WithDescription("Total storage used by avatars"),
+		metric.WithUnit("By"),
+		metric.WithInt64Callback(func(ctx context.Context, obs metric.Int64Observer) error {
+			total, err := avatarRepo.TotalStorageBytes(ctx)
+			if err != nil {
+				return err
+			}
+			obs.Observe(total)
+			return nil
+		}),
+	); err != nil {
+		return fmt.Errorf("register storage gauge: %w", err)
+	}
 
 	s3Client, err := s3.NewClient(a.cfg.S3Endpoint, a.cfg.S3AccessKey, a.cfg.S3SecretKey, a.cfg.S3UseSSL)
 	if err != nil {
@@ -80,7 +106,10 @@ func (a *App) Run() error {
 
 	publisher := rabbitmq.NewAvatarEventPublisher(ch)
 
-	avatarService := services.NewAvatarService(avatarRepo, fileStorage, s3KeyFunc, publisher, a.cfg.MaxUploadBytes)
+	avatarService, err := services.NewAvatarService(avatarRepo, fileStorage, s3KeyFunc, publisher, a.cfg.MaxUploadBytes)
+	if err != nil {
+		return fmt.Errorf("create avatar service: %w", err)
+	}
 	avatarHandler := handlers.NewAvatarHandler(avatarService, avatarService, avatarService, avatarService, a.logger, a.cfg.MaxUploadBytes)
 
 	healthHandler := handlers.NewHealthHandler(a.logger, 2*time.Second,
@@ -99,6 +128,7 @@ func (a *App) Run() error {
 	)
 
 	r := chi.NewRouter()
+	r.Use(handlers.RouteTagMiddleware)
 	r.Get("/health", healthHandler.Handle)
 	r.Post("/api/v1/avatars", avatarHandler.Upload)
 	r.Get("/api/v1/avatars/{avatar_id}", avatarHandler.GetImage)
@@ -111,8 +141,12 @@ func (a *App) Run() error {
 	r.Handle("/*", http.FileServer(http.Dir(a.cfg.StaticDir)))
 
 	srv := &http.Server{
-		Addr:    a.cfg.HTTPAddress,
-		Handler: r,
+		Addr: a.cfg.HTTPAddress,
+		Handler: otelhttp.NewHandler(r, "http.server",
+			otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
+				return req.Method + " " + req.URL.Path
+			}),
+		),
 	}
 
 	go func() {
@@ -120,11 +154,11 @@ func (a *App) Run() error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			a.logger.Error("shutdown server", zap.Error(err))
+			a.logger.ErrorContext(shutdownCtx, "shutdown server", slog.Any("error", err))
 		}
 	}()
 
-	a.logger.Info("starting server", zap.String("address", a.cfg.HTTPAddress))
+	a.logger.InfoContext(ctx, "starting server", slog.String("address", a.cfg.HTTPAddress))
 
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("start server: %w", err)
