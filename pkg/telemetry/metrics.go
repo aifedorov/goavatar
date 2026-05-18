@@ -8,7 +8,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 func SetupMetrics(ctx context.Context) (func(context.Context) error, error) {
@@ -17,12 +16,9 @@ func SetupMetrics(ctx context.Context) (func(context.Context) error, error) {
 		return nil, fmt.Errorf("create otlp grpc metric exporter: %w", err)
 	}
 
-	res, err := resource.New(ctx,
-		resource.WithFromEnv(),
-		resource.WithTelemetrySDK(),
-	)
+	res, err := newResource(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("build resource: %w", err)
+		return nil, err
 	}
 
 	reader := metric.NewPeriodicReader(exporter,

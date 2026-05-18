@@ -7,7 +7,6 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/sdk/log"
-	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 func SetupLogs(ctx context.Context) (func(context.Context) error, error) {
@@ -16,12 +15,9 @@ func SetupLogs(ctx context.Context) (func(context.Context) error, error) {
 		return nil, fmt.Errorf("create otlp grpc log exporter: %w", err)
 	}
 
-	res, err := resource.New(ctx,
-		resource.WithFromEnv(),
-		resource.WithTelemetrySDK(),
-	)
+	res, err := newResource(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("build resource: %w", err)
+		return nil, err
 	}
 
 	processor := log.NewBatchProcessor(exporter)

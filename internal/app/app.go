@@ -19,9 +19,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/aifedorov/goavatar/internal/config"
 	"github.com/aifedorov/goavatar/internal/handlers"
@@ -108,7 +106,10 @@ func (a *App) Run() error {
 
 	publisher := rabbitmq.NewAvatarEventPublisher(ch)
 
-	avatarService := services.NewAvatarService(avatarRepo, fileStorage, s3KeyFunc, publisher, a.cfg.MaxUploadBytes)
+	avatarService, err := services.NewAvatarService(avatarRepo, fileStorage, s3KeyFunc, publisher, a.cfg.MaxUploadBytes)
+	if err != nil {
+		return fmt.Errorf("create avatar service: %w", err)
+	}
 	avatarHandler := handlers.NewAvatarHandler(avatarService, avatarService, avatarService, avatarService, a.logger, a.cfg.MaxUploadBytes)
 
 	healthHandler := handlers.NewHealthHandler(a.logger, 2*time.Second,
@@ -127,7 +128,7 @@ func (a *App) Run() error {
 	)
 
 	r := chi.NewRouter()
-	r.Use(routeTagMiddleware)
+	r.Use(handlers.RouteTagMiddleware)
 	r.Get("/health", healthHandler.Handle)
 	r.Post("/api/v1/avatars", avatarHandler.Upload)
 	r.Get("/api/v1/avatars/{avatar_id}", avatarHandler.GetImage)
@@ -164,21 +165,4 @@ func (a *App) Run() error {
 	}
 
 	return nil
-}
-
-func routeTagMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		next.ServeHTTP(w, req)
-		rctx := chi.RouteContext(req.Context())
-		if rctx == nil {
-			return
-		}
-		pattern := rctx.RoutePattern()
-		if pattern == "" {
-			return
-		}
-		span := trace.SpanFromContext(req.Context())
-		span.SetName(req.Method + " " + pattern)
-		span.SetAttributes(attribute.String("http.route", pattern))
-	})
 }

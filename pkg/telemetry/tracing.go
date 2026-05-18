@@ -7,7 +7,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -17,12 +16,9 @@ func SetupTracing(ctx context.Context) (func(context.Context) error, error) {
 		return nil, fmt.Errorf("create otlp grpc trace exporter: %w", err)
 	}
 
-	res, err := resource.New(ctx,
-		resource.WithFromEnv(),
-		resource.WithTelemetrySDK(),
-	)
+	res, err := newResource(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("build resource: %w", err)
+		return nil, err
 	}
 
 	tp := sdktrace.NewTracerProvider(

@@ -30,15 +30,21 @@ type AvatarService struct {
 	uploadDuration metric.Float64Histogram
 }
 
-func NewAvatarService(repo domain.AvatarRepository, storage domain.FileStorage, s3KeyFunc S3KeyFunc, publisher domain.AvatarEventPublisher, maxUploadBytes int64) *AvatarService {
+func NewAvatarService(repo domain.AvatarRepository, storage domain.FileStorage, s3KeyFunc S3KeyFunc, publisher domain.AvatarEventPublisher, maxUploadBytes int64) (*AvatarService, error) {
 	meter := otel.Meter(meterName)
-	uploadsTotal, _ := meter.Int64Counter("avatars.uploads",
+	uploadsTotal, err := meter.Int64Counter("avatars.uploads",
 		metric.WithDescription("Total number of avatar uploads"),
 	)
-	uploadDuration, _ := meter.Float64Histogram("avatars.upload.duration",
+	if err != nil {
+		return nil, fmt.Errorf("create avatars.uploads counter: %w", err)
+	}
+	uploadDuration, err := meter.Float64Histogram("avatars.upload.duration",
 		metric.WithDescription("Avatar upload duration"),
 		metric.WithUnit("s"),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("create avatars.upload.duration histogram: %w", err)
+	}
 	return &AvatarService{
 		repo:           repo,
 		storage:        storage,
@@ -47,7 +53,7 @@ func NewAvatarService(repo domain.AvatarRepository, storage domain.FileStorage, 
 		maxUploadBytes: maxUploadBytes,
 		uploadsTotal:   uploadsTotal,
 		uploadDuration: uploadDuration,
-	}
+	}, nil
 }
 
 func (s *AvatarService) Upload(ctx context.Context, userID, fileName, mimeType string, sizeBytes int64, file io.Reader) (_ *domain.Avatar, err error) {

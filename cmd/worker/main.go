@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/aifedorov/goavatar/internal/config"
 	"github.com/aifedorov/goavatar/internal/worker"
@@ -19,15 +18,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	shutdownLogs, err := telemetry.SetupLogs(context.Background())
+	shutdownTelemetry, err := telemetry.Setup(context.Background())
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize log exporter: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize telemetry: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = shutdownLogs(ctx)
+		_ = shutdownTelemetry()
 	}()
 
 	log, err := logger.New(cfg.LogLevel)
@@ -35,28 +32,6 @@ func main() {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
-
-	shutdownTracing, err := telemetry.SetupTracing(context.Background())
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize tracing: %v\n", err)
-		os.Exit(1)
-	}
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = shutdownTracing(ctx)
-	}()
-
-	shutdownMetrics, err := telemetry.SetupMetrics(context.Background())
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize metrics: %v\n", err)
-		os.Exit(1)
-	}
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = shutdownMetrics(ctx)
-	}()
 
 	app := worker.NewApp(cfg, log)
 	if err := app.Run(); err != nil {

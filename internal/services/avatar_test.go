@@ -206,13 +206,17 @@ func TestAvatarService_Upload(t *testing.T) {
 			const maxBytes int64 = 10 * 1024 * 1024
 
 			if tt.nilStorage {
-				svc = NewAvatarService(mockRepo, nil, keyFunc, mockPub, maxBytes)
+				var err error
+				svc, err = NewAvatarService(mockRepo, nil, keyFunc, mockPub, maxBytes)
+				require.NoError(t, err)
 			} else {
 				mockStorage := mocks.NewMockFileStorage(ctrl)
 				if tt.setupMocks != nil {
 					tt.setupMocks(mockRepo, mockStorage, mockPub)
 				}
-				svc = NewAvatarService(mockRepo, mockStorage, keyFunc, mockPub, maxBytes)
+				var err error
+				svc, err = NewAvatarService(mockRepo, mockStorage, keyFunc, mockPub, maxBytes)
+				require.NoError(t, err)
 			}
 
 			avatar, err := svc.Upload(
@@ -290,7 +294,8 @@ func TestAvatarService_GetByID(t *testing.T) {
 			mockRepo := mocks.NewMockAvatarRepository(ctrl)
 			tt.setupMock(mockRepo)
 
-			svc := NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
+			svc, err := NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
+			require.NoError(t, err)
 			avatar, err := svc.GetByID(context.Background(), testID)
 
 			if tt.wantErr != "" {
@@ -350,7 +355,8 @@ func TestAvatarService_GetLatestByUserID(t *testing.T) {
 				tt.setupMock(mockRepo)
 			}
 
-			svc := NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
+			svc, err := NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
+			require.NoError(t, err)
 			avatar, err := svc.GetLatestByUserID(context.Background(), tt.userID)
 
 			if tt.wantErr != "" {
@@ -459,8 +465,9 @@ func TestAvatarService_Delete(t *testing.T) {
 				tt.setupMocks(mockRepo, mockPub)
 			}
 
-			svc := NewAvatarService(mockRepo, nil, nil, mockPub, 10*1024*1024)
-			err := svc.Delete(context.Background(), testID, tt.userID)
+			svc, err := NewAvatarService(mockRepo, nil, nil, mockPub, 10*1024*1024)
+			require.NoError(t, err)
+			err = svc.Delete(context.Background(), testID, tt.userID)
 
 			if tt.wantErr != "" {
 				require.Error(t, err)
@@ -541,9 +548,13 @@ func TestAvatarService_GetImage(t *testing.T) {
 
 			var svc *AvatarService
 			if tt.nilStorage {
-				svc = NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
+				var err error
+				svc, err = NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
+				require.NoError(t, err)
 			} else {
-				svc = NewAvatarService(mockRepo, mockStorage, nil, nil, 10*1024*1024)
+				var err error
+				svc, err = NewAvatarService(mockRepo, mockStorage, nil, nil, 10*1024*1024)
+				require.NoError(t, err)
 			}
 
 			avatar, reader, err := svc.GetImage(context.Background(), testID, "")
@@ -639,9 +650,13 @@ func TestAvatarService_GetUserImage(t *testing.T) {
 
 			var svc *AvatarService
 			if tt.nilStorage {
-				svc = NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
+				var err error
+				svc, err = NewAvatarService(mockRepo, nil, nil, nil, 10*1024*1024)
+				require.NoError(t, err)
 			} else {
-				svc = NewAvatarService(mockRepo, mockStorage, nil, nil, 10*1024*1024)
+				var err error
+				svc, err = NewAvatarService(mockRepo, mockStorage, nil, nil, 10*1024*1024)
+				require.NoError(t, err)
 			}
 
 			avatar, reader, err := svc.GetUserImage(context.Background(), tt.userID, "")
