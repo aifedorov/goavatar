@@ -162,6 +162,19 @@ func (q *Queries) GetProcessingStatus(ctx context.Context, id pgtype.UUID) (Proc
 	return processing_status, err
 }
 
+const getTotalStorageBytes = `-- name: GetTotalStorageBytes :one
+SELECT COALESCE(SUM(size_bytes), 0)::bigint AS total
+FROM avatars
+WHERE deleted_at IS NULL
+`
+
+func (q *Queries) GetTotalStorageBytes(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getTotalStorageBytes)
+	var total int64
+	err := row.Scan(&total)
+	return total, err
+}
+
 const setAvatarUploadFailed = `-- name: SetAvatarUploadFailed :exec
 UPDATE avatars
 SET upload_status = 'failed',

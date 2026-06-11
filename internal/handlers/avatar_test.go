@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -20,8 +21,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"go.uber.org/zap"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func TestAvatarHandler_Upload(t *testing.T) {
 	tests := []struct {
@@ -109,7 +113,7 @@ func TestAvatarHandler_Upload(t *testing.T) {
 				tt.setupMock(mockUploader)
 			}
 
-			handler := NewAvatarHandler(mockUploader, nil, nil, nil, zap.NewNop(), 10*1024*1024)
+			handler := NewAvatarHandler(mockUploader, nil, nil, nil, discardLogger(), 10*1024*1024)
 
 			req := newMultipartRequest(t, tt.userID, tt.withFile)
 			rec := httptest.NewRecorder()
@@ -214,7 +218,7 @@ func TestAvatarHandler_GetImage(t *testing.T) {
 				tt.setupMock(mockGetter)
 			}
 
-			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop(), 10*1024*1024)
+			handler := NewAvatarHandler(nil, mockGetter, nil, nil, discardLogger(), 10*1024*1024)
 
 			target := "/api/v1/avatars/" + tt.avatarID
 			if tt.size != "" {
@@ -297,7 +301,7 @@ func TestAvatarHandler_GetUserAvatar(t *testing.T) {
 				tt.setupMock(mockGetter)
 			}
 
-			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop(), 10*1024*1024)
+			handler := NewAvatarHandler(nil, mockGetter, nil, nil, discardLogger(), 10*1024*1024)
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+tt.userID+"/avatar", nil)
 			rctx := chi.NewRouteContext()
@@ -428,7 +432,7 @@ func TestAvatarHandler_GetMetadata(t *testing.T) {
 				tt.setupMock(mockGetter)
 			}
 
-			handler := NewAvatarHandler(nil, mockGetter, nil, nil, zap.NewNop(), 10*1024*1024)
+			handler := NewAvatarHandler(nil, mockGetter, nil, nil, discardLogger(), 10*1024*1024)
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/avatars/"+tt.avatarID+"/metadata", nil)
 			rctx := chi.NewRouteContext()
@@ -459,7 +463,7 @@ func TestAvatarHandler_Upload_MaxBytesReader(t *testing.T) {
 	mockUploader := mocks.NewMockAvatarUploader(ctrl)
 
 	// maxUploadBytes=1024, body limit = 1024 + 1MB; send >1MB to trigger
-	handler := NewAvatarHandler(mockUploader, nil, nil, nil, zap.NewNop(), 1024)
+	handler := NewAvatarHandler(mockUploader, nil, nil, nil, discardLogger(), 1024)
 
 	req := newMultipartRequestWithSize(t, "user-123", 2*1024*1024)
 	rec := httptest.NewRecorder()
@@ -539,7 +543,7 @@ func TestAvatarHandler_DeleteAvatar(t *testing.T) {
 				tt.setupMock(mockDeleter)
 			}
 
-			handler := NewAvatarHandler(nil, nil, mockDeleter, nil, zap.NewNop(), 10*1024*1024)
+			handler := NewAvatarHandler(nil, nil, mockDeleter, nil, discardLogger(), 10*1024*1024)
 
 			req := httptest.NewRequest(http.MethodDelete, "/api/v1/avatars/"+tt.avatarID, nil)
 			if tt.userID != "" {
@@ -612,7 +616,7 @@ func TestAvatarHandler_ListUserAvatars(t *testing.T) {
 				tt.setupMock(mockLister)
 			}
 
-			handler := NewAvatarHandler(nil, nil, nil, mockLister, zap.NewNop(), 10*1024*1024)
+			handler := NewAvatarHandler(nil, nil, nil, mockLister, discardLogger(), 10*1024*1024)
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+tt.userID+"/avatars", nil)
 			rctx := chi.NewRouteContext()

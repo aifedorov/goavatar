@@ -3,11 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 type HealthCheck struct {
@@ -18,10 +17,10 @@ type HealthCheck struct {
 type HealthHandler struct {
 	checks  []HealthCheck
 	timeout time.Duration
-	logger  *zap.Logger
+	logger  *slog.Logger
 }
 
-func NewHealthHandler(logger *zap.Logger, timeout time.Duration, checks ...HealthCheck) *HealthHandler {
+func NewHealthHandler(logger *slog.Logger, timeout time.Duration, checks ...HealthCheck) *HealthHandler {
 	return &HealthHandler{checks: checks, timeout: timeout, logger: logger}
 }
 
@@ -68,6 +67,6 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	if err := json.NewEncoder(w).Encode(healthResponse{Status: overall, Components: results}); err != nil {
-		h.logger.Error("encode health response", zap.Error(err))
+		h.logger.ErrorContext(ctx, "encode health response", slog.Any("error", err))
 	}
 }

@@ -138,6 +138,14 @@ func (r *AvatarRepo) SoftDelete(ctx context.Context, id uuid.UUID, userID string
 	return nil
 }
 
+func (r *AvatarRepo) TotalStorageBytes(ctx context.Context) (int64, error) {
+	total, err := r.q.GetTotalStorageBytes(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("get total storage bytes: %w", err)
+	}
+	return total, nil
+}
+
 func toDomainAvatar(row db.Avatar) *domain.Avatar {
 	avatar := &domain.Avatar{
 		ID:               row.ID.Bytes,

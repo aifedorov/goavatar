@@ -158,6 +158,21 @@ func (mr *MockAvatarRepositoryMockRecorder) SoftDelete(ctx, id, userID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDelete", reflect.TypeOf((*MockAvatarRepository)(nil).SoftDelete), ctx, id, userID)
 }
 
+// TotalStorageBytes mocks base method.
+func (m *MockAvatarRepository) TotalStorageBytes(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TotalStorageBytes", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TotalStorageBytes indicates an expected call of TotalStorageBytes.
+func (mr *MockAvatarRepositoryMockRecorder) TotalStorageBytes(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TotalStorageBytes", reflect.TypeOf((*MockAvatarRepository)(nil).TotalStorageBytes), ctx)
+}
+
 // UpdateProcessingStatus mocks base method.
 func (m *MockAvatarRepository) UpdateProcessingStatus(ctx context.Context, id uuid.UUID, status domain.ProcessingStatus, thumbnails map[string]string) error {
 	m.ctrl.T.Helper()

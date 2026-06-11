@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/aifedorov/goavatar/internal/domain"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/aifedorov/goavatar/internal/domain"
 )
 
 type Resizer interface {
@@ -46,7 +50,21 @@ func ThumbKey(avatarID, size string) string {
 	return fmt.Sprintf("thumbnails/%s/%s.jpg", avatarID, size)
 }
 
-func (w *Worker) HandleUploadEvent(ctx context.Context, event domain.AvatarUploadEvent) error {
+func (w *Worker) HandleUploadEvent(ctx context.Context, event domain.AvatarUploadEvent) (err error) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "Worker.HandleUploadEvent",
+		trace.WithAttributes(
+			attribute.String("avatar.id", event.AvatarID),
+			attribute.String("user.id", event.UserID),
+			attribute.String("s3.key", event.S3Key),
+		),
+	)
+	defer func() {
+		if err != nil {
+			recordSpanError(span, err)
+		}
+		span.End()
+	}()
+
 	avatarID, err := uuid.Parse(event.AvatarID)
 	if err != nil {
 		return fmt.Errorf("parse avatar ID: %w", err)
@@ -73,9 +91,9 @@ func (w *Worker) HandleUploadEvent(ctx context.Context, event domain.AvatarUploa
 
 	thumbs := make(map[string]string, len(thumbnailSizes))
 	for _, size := range thumbnailSizes {
-		resized, mime, err := w.resizer.Resize(bytes.NewReader(original), size.w, size.h)
-		if err != nil {
-			return fmt.Errorf("resize %s: %w", size.name, err)
+		resized, mime, resizeErr := w.resizeWithSpan(ctx, original, size.w, size.h)
+		if resizeErr != nil {
+			return fmt.Errorf("resize %s: %w", size.name, resizeErr)
 		}
 
 		key := ThumbKey(event.AvatarID, size.name)
@@ -92,7 +110,32 @@ func (w *Worker) HandleUploadEvent(ctx context.Context, event domain.AvatarUploa
 	return nil
 }
 
+func (w *Worker) resizeWithSpan(ctx context.Context, original []byte, width, height int) (_ []byte, _ string, err error) {
+	_, span := otel.Tracer(tracerName).Start(ctx, "imgutil.Resize",
+		trace.WithAttributes(
+			attribute.Int("image.width", width),
+			attribute.Int("image.height", height),
+			attribute.Int("image.input_bytes", len(original)),
+		),
+	)
+	defer func() {
+		if err != nil {
+			recordSpanError(span, err)
+		}
+		span.End()
+	}()
+	return w.resizer.Resize(bytes.NewReader(original), width, height)
+}
+
 func (w *Worker) HandleDeleteEvent(ctx context.Context, event domain.AvatarDeleteEvent) error {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "Worker.HandleDeleteEvent",
+		trace.WithAttributes(
+			attribute.String("avatar.id", event.AvatarID),
+			attribute.Int("s3.keys.count", len(event.S3Keys)),
+		),
+	)
+	defer span.End()
+
 	for _, key := range event.S3Keys {
 		_ = w.storage.Delete(ctx, key)
 	}

@@ -11,13 +11,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/aifedorov/goavatar/internal/domain"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 )
 
 type AvatarUploader interface {
@@ -43,11 +43,11 @@ type AvatarHandler struct {
 	getter         AvatarGetter
 	deleter        AvatarDeleter
 	lister         AvatarLister
-	logger         *zap.Logger
+	logger         *slog.Logger
 	maxUploadBytes int64
 }
 
-func NewAvatarHandler(uploader AvatarUploader, getter AvatarGetter, deleter AvatarDeleter, lister AvatarLister, logger *zap.Logger, maxUploadBytes int64) *AvatarHandler {
+func NewAvatarHandler(uploader AvatarUploader, getter AvatarGetter, deleter AvatarDeleter, lister AvatarLister, logger *slog.Logger, maxUploadBytes int64) *AvatarHandler {
 	return &AvatarHandler{
 		uploader:       uploader,
 		getter:         getter,
@@ -93,7 +93,7 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			h.writeFileTooLarge(w)
 			return
 		}
-		h.logger.Error("parse form file", zap.Error(err))
+		h.logger.Error("parse form file", slog.Any("error", err))
 		h.writeError(w, http.StatusBadRequest, "file is required")
 		return
 	}
@@ -116,7 +116,7 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 			h.writeError(w, http.StatusBadRequest, validErr.Message)
 			return
 		}
-		h.logger.Error("upload avatar", zap.Error(err))
+		h.logger.Error("upload avatar", slog.Any("error", err))
 		h.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -128,7 +128,7 @@ func (h *AvatarHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		Status:    avatar.ProcessingStatus.String(),
 		CreatedAt: avatar.CreatedAt,
 	}); err != nil {
-		h.logger.Error("encode response", zap.Error(err))
+		h.logger.Error("encode response", slog.Any("error", err))
 	}
 }
 
@@ -150,7 +150,7 @@ func (h *AvatarHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", avatar.MIMEType)
 	if _, err := io.Copy(w, reader); err != nil {
-		h.logger.Error("write image response", zap.Error(err))
+		h.logger.Error("write image response", slog.Any("error", err))
 	}
 }
 
@@ -167,7 +167,7 @@ func (h *AvatarHandler) GetUserAvatar(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", avatar.MIMEType)
 	if _, err := io.Copy(w, reader); err != nil {
-		h.logger.Error("write image response", zap.Error(err))
+		h.logger.Error("write image response", slog.Any("error", err))
 	}
 }
 
@@ -218,7 +218,7 @@ func (h *AvatarHandler) GetMetadata(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:  avatar.CreatedAt,
 		UpdatedAt:  avatar.UpdatedAt,
 	}); err != nil {
-		h.logger.Error("encode metadata response", zap.Error(err))
+		h.logger.Error("encode metadata response", slog.Any("error", err))
 	}
 }
 
@@ -305,7 +305,7 @@ func (h *AvatarHandler) ListUserAvatars(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := writeJSON(w, http.StatusOK, items); err != nil {
-		h.logger.Error("encode list response", zap.Error(err))
+		h.logger.Error("encode list response", slog.Any("error", err))
 	}
 }
 
@@ -318,7 +318,7 @@ func (h *AvatarHandler) handleMutationError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusForbidden, "you can only delete your own avatars")
 		return
 	}
-	h.logger.Error("mutation error", zap.Error(err))
+	h.logger.Error("mutation error", slog.Any("error", err))
 	h.writeError(w, http.StatusInternalServerError, "internal server error")
 }
 
@@ -331,7 +331,7 @@ func (h *AvatarHandler) handleGetError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusBadRequest, validErr.Message)
 		return
 	}
-	h.logger.Error("get avatar", zap.Error(err))
+	h.logger.Error("get avatar", slog.Any("error", err))
 	h.writeError(w, http.StatusInternalServerError, "internal server error")
 }
 
@@ -340,13 +340,13 @@ func (h *AvatarHandler) writeFileTooLarge(w http.ResponseWriter) {
 		Error:   "File too large",
 		MaxSize: h.maxUploadBytes,
 	}); err != nil {
-		h.logger.Error("encode file too large response", zap.Error(err))
+		h.logger.Error("encode file too large response", slog.Any("error", err))
 	}
 }
 
 func (h *AvatarHandler) writeError(w http.ResponseWriter, status int, msg string) {
 	if err := writeJSON(w, status, errorResponse{Error: msg}); err != nil {
-		h.logger.Error("encode error response", zap.Error(err))
+		h.logger.Error("encode error response", slog.Any("error", err))
 	}
 }
 
