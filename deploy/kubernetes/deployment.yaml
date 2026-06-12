@@ -4,7 +4,6 @@ metadata:
   name: goavatar-server
   namespace: goavatar
 spec:
-  replicas: 3
   selector:
     matchLabels:
       app: goavatar-server
