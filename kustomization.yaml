@@ -2,6 +2,7 @@ resources:
   - deploy/kubernetes/namespace.yaml
   - deploy/kubernetes/configmap.yaml
   - deploy/kubernetes/secret.yaml
+  - deploy/kubernetes/serviceaccount.yaml
   - deploy/kubernetes/postgres-secret.yaml
   - deploy/kubernetes/postgres-service.yaml
   - deploy/kubernetes/postgres-statefulset.yaml
@@ -18,6 +19,8 @@ resources:
   - deploy/kubernetes/worker-deployment.yaml
   - deploy/kubernetes/service.yaml
   - deploy/kubernetes/servicemonitor.yaml
+  - deploy/kubernetes/server-networkpolicy.yaml
+  - deploy/kubernetes/worker-networkpolicy.yaml
   - deploy/kubernetes/ingress.yaml
 
 configMapGenerator:

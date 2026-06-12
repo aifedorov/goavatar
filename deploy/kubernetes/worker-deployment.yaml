@@ -13,10 +13,23 @@ spec:
       labels:
         app: goavatar-worker
     spec:
+      serviceAccountName: goavatar-app
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker
           image: goavatar:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           command: ["/app/worker"]
           envFrom:
             - configMapRef:
