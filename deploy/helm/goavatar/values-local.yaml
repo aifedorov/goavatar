@@ -1,0 +1,10 @@
+namespace:
+  name: goavatar
+
+image:
+  repository: goavatar
+  tag: latest
+  pullPolicy: IfNotPresent
+
+ingress:
+  host: avatars.example.com

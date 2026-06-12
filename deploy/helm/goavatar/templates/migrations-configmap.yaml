@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: goavatar-migrations
+  namespace: {{ include "goavatar.namespace" . }}
+data:
+{{- range $path, $_ := .Files.Glob "files/migrations/*.sql" }}
+  {{ base $path }}: |-
+{{ $.Files.Get $path | indent 4 }}
+{{- end }}

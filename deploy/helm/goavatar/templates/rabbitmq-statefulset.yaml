@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: rabbitmq
-  namespace: goavatar
+  namespace: {{ include "goavatar.namespace" . }}
 spec:
   serviceName: rabbitmq
   replicas: 1
@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: rabbitmq
-          image: rabbitmq:3.12-management
+          image: {{ .Values.rabbitmq.image }}
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5672
@@ -26,14 +26,9 @@ spec:
                 name: rabbitmq-secrets
           env:
             - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
-              value: "+sbwt none +sbwtdcpu none +sbwtdio none"
+              value: {{ .Values.rabbitmq.erlangArgs | quote }}
           resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+{{ toYaml .Values.rabbitmq.resources | indent 12 }}
           livenessProbe:
             exec:
               command:
@@ -61,4 +56,4 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 1Gi
+            storage: {{ .Values.rabbitmq.storage }}

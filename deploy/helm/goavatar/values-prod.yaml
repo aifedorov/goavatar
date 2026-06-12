@@ -1,0 +1,27 @@
+namespace:
+  name: goavatar
+
+image:
+  repository: registry.example.com/goavatar
+  tag: 1.0.0
+  pullPolicy: IfNotPresent
+
+config:
+  logLevel: info
+  s3Endpoint: s3.example.com
+  s3Bucket: avatars-prod
+  s3UseSSL: "true"
+
+secrets:
+  databaseUri: postgres://goavatar:change-me@postgres:5432/goavatar?sslmode=require
+  s3AccessKey: change-me
+  s3SecretKey: change-me
+  rabbitmqUrl: amqp://rabbitmq:change-me@rabbitmq:5672/
+
+ingress:
+  host: avatars.example.com
+
+server:
+  hpa:
+    minReplicas: 3
+    maxReplicas: 20

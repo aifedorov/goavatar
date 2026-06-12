@@ -1,13 +1,14 @@
+{{- if .Values.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: goavatar-server
-  namespace: goavatar
+  namespace: {{ include "goavatar.namespace" . }}
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ .Values.ingress.proxyBodySize | quote }}
 spec:
   rules:
-    - host: avatars.example.com
+    - host: {{ .Values.ingress.host }}
       http:
         paths:
           - path: /
@@ -16,4 +17,5 @@ spec:
               service:
                 name: goavatar-server
                 port:
-                  number: 80
+                  number: {{ .Values.service.port }}
+{{- end }}

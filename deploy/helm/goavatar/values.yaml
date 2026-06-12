@@ -1,0 +1,134 @@
+namespace:
+  create: true
+  name: goavatar
+  podSecurity:
+    enforce: baseline
+    audit: restricted
+    warn: restricted
+
+image:
+  repository: goavatar
+  tag: latest
+  pullPolicy: IfNotPresent
+
+server:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    cpuAverageUtilization: 70
+    memoryAverageUtilization: 80
+
+worker:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+config:
+  httpAddress: 0.0.0.0:8080
+  logLevel: info
+  s3Endpoint: minio:9000
+  s3Bucket: avatars
+  s3UseSSL: "false"
+  maxUploadBytes: "10485760"
+  staticDir: /app/web/static
+
+secrets:
+  databaseUri: postgres://goavatar:password@postgres:5432/goavatar?sslmode=disable
+  s3AccessKey: minioadmin
+  s3SecretKey: minioadmin
+  rabbitmqUrl: amqp://rabbitmq:rabbitmq@rabbitmq:5672/
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  host: avatars.example.com
+  proxyBodySize: 10m
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+serviceAccount:
+  create: true
+  name: goavatar-app
+  automountServiceAccountToken: false
+
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+postgres:
+  image: postgres:17
+  database: goavatar
+  username: goavatar
+  password: password
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+minio:
+  image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+  mcImage: minio/mc:RELEASE.2024-11-21T17-21-54Z
+  rootUser: minioadmin
+  rootPassword: minioadmin
+  bucket: avatars
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+rabbitmq:
+  image: rabbitmq:3.12-management
+  username: rabbitmq
+  password: rabbitmq
+  storage: 1Gi
+  erlangArgs: "+sbwt none +sbwtdcpu none +sbwtdio none"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+migrations:
+  image: migrate/migrate:v4.18.1
+
+networkPolicy:
+  enabled: true

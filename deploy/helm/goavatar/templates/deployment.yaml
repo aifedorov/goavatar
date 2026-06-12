@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: goavatar-server
-  namespace: goavatar
+  namespace: {{ include "goavatar.namespace" . }}
 spec:
   selector:
     matchLabels:
@@ -12,46 +12,33 @@ spec:
       labels:
         app: goavatar-server
     spec:
-      serviceAccountName: goavatar-app
+      serviceAccountName: {{ include "goavatar.serviceAccountName" . }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
+{{ toYaml .Values.securityContext.pod | indent 8 }}
       containers:
         - name: server
-          image: goavatar:latest
-          imagePullPolicy: IfNotPresent
+          image: {{ include "goavatar.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
+{{ toYaml .Values.securityContext.container | indent 12 }}
           ports:
-            - containerPort: 8080
+            - containerPort: {{ .Values.service.targetPort }}
           envFrom:
             - configMapRef:
                 name: goavatar-config
             - secretRef:
                 name: goavatar-secrets
           resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+{{ toYaml .Values.server.resources | indent 12 }}
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: {{ .Values.service.targetPort }}
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: {{ .Values.service.targetPort }}
             initialDelaySeconds: 5
             periodSeconds: 10

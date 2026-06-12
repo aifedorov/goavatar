@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
-  namespace: goavatar
+  namespace: {{ include "goavatar.namespace" . }}
 spec:
   serviceName: postgres
   replicas: 1
@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:17
+          image: {{ .Values.postgres.image }}
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
@@ -24,20 +24,15 @@ spec:
             - secretRef:
                 name: postgres-secrets
           resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+{{ toYaml .Values.postgres.resources | indent 12 }}
           livenessProbe:
             exec:
               command:
                 - pg_isready
                 - -U
-                - goavatar
+                - {{ .Values.postgres.username }}
                 - -d
-                - goavatar
+                - {{ .Values.postgres.database }}
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
@@ -45,9 +40,9 @@ spec:
               command:
                 - pg_isready
                 - -U
-                - goavatar
+                - {{ .Values.postgres.username }}
                 - -d
-                - goavatar
+                - {{ .Values.postgres.database }}
             initialDelaySeconds: 5
             periodSeconds: 10
           volumeMounts:
@@ -61,4 +56,4 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 1Gi
+            storage: {{ .Values.postgres.storage }}

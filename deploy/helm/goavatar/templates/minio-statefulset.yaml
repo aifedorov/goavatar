@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: minio
-  namespace: goavatar
+  namespace: {{ include "goavatar.namespace" . }}
 spec:
   serviceName: minio
   replicas: 1
@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: minio
-          image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+          image: {{ .Values.minio.image }}
           imagePullPolicy: IfNotPresent
           args:
             - server
@@ -30,12 +30,7 @@ spec:
             - secretRef:
                 name: minio-secrets
           resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+{{ toYaml .Values.minio.resources | indent 12 }}
           livenessProbe:
             httpGet:
               path: /minio/health/live
@@ -59,4 +54,4 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 1Gi
+            storage: {{ .Values.minio.storage }}
