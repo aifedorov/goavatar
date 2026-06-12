@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goavatar-server
+  namespace: goavatar
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: goavatar-server
+  template:
+    metadata:
+      labels:
+        app: goavatar-server
+    spec:
+      containers:
+        - name: server
+          image: goavatar:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: goavatar-config
+            - secretRef:
+                name: goavatar-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10

@@ -1,0 +1,26 @@
+resources:
+  - deploy/kubernetes/namespace.yaml
+  - deploy/kubernetes/configmap.yaml
+  - deploy/kubernetes/secret.yaml
+  - deploy/kubernetes/postgres-secret.yaml
+  - deploy/kubernetes/postgres-service.yaml
+  - deploy/kubernetes/postgres-statefulset.yaml
+  - deploy/kubernetes/minio-secret.yaml
+  - deploy/kubernetes/minio-service.yaml
+  - deploy/kubernetes/minio-statefulset.yaml
+  - deploy/kubernetes/minio-bucket-job.yaml
+  - deploy/kubernetes/rabbitmq-secret.yaml
+  - deploy/kubernetes/rabbitmq-service.yaml
+  - deploy/kubernetes/rabbitmq-statefulset.yaml
+  - deploy/kubernetes/migration-job.yaml
+  - deploy/kubernetes/deployment.yaml
+  - deploy/kubernetes/worker-deployment.yaml
+  - deploy/kubernetes/service.yaml
+  - deploy/kubernetes/ingress.yaml
+
+configMapGenerator:
+  - name: goavatar-migrations
+    namespace: goavatar
+    files:
+      - migrations/000001_create_avatars.up.sql
+      - migrations/000001_create_avatars.down.sql

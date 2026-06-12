@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goavatar-worker
+  namespace: goavatar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goavatar-worker
+  template:
+    metadata:
+      labels:
+        app: goavatar-worker
+    spec:
+      containers:
+        - name: worker
+          image: goavatar:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/app/worker"]
+          envFrom:
+            - configMapRef:
+                name: goavatar-config
+            - secretRef:
+                name: goavatar-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
