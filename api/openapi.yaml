@@ -1,0 +1,502 @@
+openapi: 3.0.3
+info:
+  title: GoAvatar API
+  version: 0.1.0
+  description: API for uploading, retrieving, listing, and deleting user avatars.
+servers:
+  - url: /
+tags:
+  - name: health
+  - name: metrics
+  - name: avatars
+  - name: users
+paths:
+  /health:
+    get:
+      tags:
+        - health
+      summary: Check service health
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: One or more dependencies are unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /metrics:
+    get:
+      tags:
+        - metrics
+      summary: Expose Prometheus metrics
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/avatars:
+    post:
+      tags:
+        - avatars
+      summary: Upload avatar
+      operationId: uploadAvatar
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Avatar upload accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadAvatarResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: File is too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileTooLargeResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/avatars/{avatar_id}:
+    get:
+      tags:
+        - avatars
+      summary: Get avatar image
+      operationId: getAvatarImage
+      parameters:
+        - $ref: "#/components/parameters/AvatarIDPath"
+        - $ref: "#/components/parameters/ImageSizeQuery"
+      responses:
+        "200":
+          description: Avatar image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid avatar ID or image size
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Avatar not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags:
+        - avatars
+      summary: Delete avatar
+      operationId: deleteAvatar
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/AvatarIDPath"
+      responses:
+        "204":
+          description: Avatar deleted
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: User is not allowed to delete this avatar
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Avatar not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/avatars/{avatar_id}/metadata:
+    get:
+      tags:
+        - avatars
+      summary: Get avatar metadata
+      operationId: getAvatarMetadata
+      parameters:
+        - $ref: "#/components/parameters/AvatarIDPath"
+      responses:
+        "200":
+          description: Avatar metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvatarMetadata"
+        "400":
+          description: Invalid avatar ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Avatar not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/users/{user_id}/avatar:
+    get:
+      tags:
+        - users
+      summary: Get current user avatar image
+      operationId: getUserAvatarImage
+      parameters:
+        - $ref: "#/components/parameters/UserIDPath"
+        - $ref: "#/components/parameters/ImageSizeQuery"
+      responses:
+        "200":
+          description: User avatar image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid image size
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Avatar not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags:
+        - users
+      summary: Delete current user avatar
+      operationId: deleteUserAvatar
+      parameters:
+        - $ref: "#/components/parameters/UserIDHeader"
+        - $ref: "#/components/parameters/UserIDPath"
+      responses:
+        "204":
+          description: User avatar deleted
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: User is not allowed to delete this avatar
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Avatar not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/users/{user_id}/avatars:
+    get:
+      tags:
+        - users
+      summary: List user avatars
+      operationId: listUserAvatars
+      parameters:
+        - $ref: "#/components/parameters/UserIDPath"
+      responses:
+        "200":
+          description: User avatars
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AvatarListItem"
+        "404":
+          description: User avatars not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  parameters:
+    UserIDHeader:
+      name: X-User-ID
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Authenticated user identifier.
+    AvatarIDPath:
+      name: avatar_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserIDPath:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ImageSizeQuery:
+      name: size
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Optional thumbnail size.
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - components
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+        components:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComponentStatus"
+    ComponentStatus:
+      type: object
+      required:
+        - name
+        - status
+      properties:
+        name:
+          type: string
+          example: postgres
+        status:
+          type: string
+          enum:
+            - ok
+            - down
+        error:
+          type: string
+    UploadAvatarResponse:
+      type: object
+      required:
+        - id
+        - user_id
+        - url
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        url:
+          type: string
+          example: /api/v1/avatars/018f5c74-8b69-7c7d-97a5-0f0a36e12a62
+        status:
+          $ref: "#/components/schemas/ProcessingStatus"
+        created_at:
+          type: string
+          format: date-time
+    AvatarMetadata:
+      type: object
+      required:
+        - id
+        - user_id
+        - file_name
+        - mime_type
+        - size
+        - thumbnails
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        file_name:
+          type: string
+        mime_type:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+            - image/webp
+        size:
+          type: integer
+          format: int64
+        thumbnails:
+          type: array
+          items:
+            $ref: "#/components/schemas/Thumbnail"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Thumbnail:
+      type: object
+      required:
+        - size
+        - url
+      properties:
+        size:
+          type: string
+          example: 128x128
+        url:
+          type: string
+          example: /api/v1/avatars/018f5c74-8b69-7c7d-97a5-0f0a36e12a62?size=128x128
+    AvatarListItem:
+      type: object
+      required:
+        - id
+        - user_id
+        - file_name
+        - url
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        file_name:
+          type: string
+        url:
+          type: string
+          example: /api/v1/avatars/018f5c74-8b69-7c7d-97a5-0f0a36e12a62
+        status:
+          $ref: "#/components/schemas/ProcessingStatus"
+        created_at:
+          type: string
+          format: date-time
+    ProcessingStatus:
+      type: string
+      enum:
+        - pending
+        - processing
+        - completed
+        - failed
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+        details:
+          type: string
+    FileTooLargeResponse:
+      type: object
+      required:
+        - error
+        - max_size
+      properties:
+        error:
+          type: string
+          example: File too large
+        max_size:
+          type: integer
+          format: int64
