@@ -7,6 +7,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	otelexporterprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -14,6 +15,11 @@ func SetupMetrics(ctx context.Context) (func(context.Context) error, error) {
 	exporter, err := otlpmetricgrpc.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create otlp grpc metric exporter: %w", err)
+	}
+
+	prometheusExporter, err := otelexporterprometheus.New()
+	if err != nil {
+		return nil, fmt.Errorf("create prometheus metric exporter: %w", err)
 	}
 
 	res, err := newResource(ctx)
@@ -27,6 +33,7 @@ func SetupMetrics(ctx context.Context) (func(context.Context) error, error) {
 
 	mp := metric.NewMeterProvider(
 		metric.WithReader(reader),
+		metric.WithReader(prometheusExporter),
 		metric.WithResource(res),
 	)
 	otel.SetMeterProvider(mp)

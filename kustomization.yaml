@@ -17,6 +17,7 @@ resources:
   - deploy/kubernetes/hpa.yaml
   - deploy/kubernetes/worker-deployment.yaml
   - deploy/kubernetes/service.yaml
+  - deploy/kubernetes/servicemonitor.yaml
   - deploy/kubernetes/ingress.yaml
 
 configMapGenerator:

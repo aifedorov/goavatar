@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -130,6 +131,7 @@ func (a *App) Run() error {
 	r := chi.NewRouter()
 	r.Use(handlers.RouteTagMiddleware)
 	r.Get("/health", healthHandler.Handle)
+	r.Handle("/metrics", promhttp.Handler())
 	r.Post("/api/v1/avatars", avatarHandler.Upload)
 	r.Get("/api/v1/avatars/{avatar_id}", avatarHandler.GetImage)
 	r.Get("/api/v1/avatars/{avatar_id}/metadata", avatarHandler.GetMetadata)
