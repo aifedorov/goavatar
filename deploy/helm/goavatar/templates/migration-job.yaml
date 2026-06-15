@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: goavatar-migrate
+  namespace: {{ include "goavatar.namespace" . }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: {{ .Values.migrations.image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: goavatar-secrets
+                  key: DATABASE_URI
+          args:
+            - -path
+            - /migrations
+            - -database
+            - $(DATABASE_URI)
+            - up
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+      volumes:
+        - name: migrations
+          configMap:
+            name: goavatar-migrations

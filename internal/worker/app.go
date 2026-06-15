@@ -3,8 +3,10 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
@@ -120,6 +122,28 @@ func (a *App) Run() error {
 		slog.String("delete_queue", rabbitmq.AvatarDeleteQueueName),
 		slog.Int("prefetch", prefetch),
 	)
+
+	healthSrv := &http.Server{
+		Addr:    a.cfg.WorkerHealthAddress,
+		Handler: http.HandlerFunc(workerHealthHandler),
+	}
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := healthSrv.Shutdown(shutdownCtx); err != nil {
+			a.logger.ErrorContext(shutdownCtx, "shutdown worker health server", slog.Any("error", err))
+		}
+	}()
+
+	go func() {
+		a.logger.InfoContext(ctx, "starting worker health server", slog.String("address", a.cfg.WorkerHealthAddress))
+		if err := healthSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.logger.ErrorContext(ctx, "start worker health server", slog.Any("error", err))
+			stop()
+		}
+	}()
 
 	uploadDone := make(chan struct{})
 	go func() {
@@ -253,6 +277,11 @@ func (a *App) Run() error {
 	}
 
 	return nil
+}
+
+func workerHealthHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
 }
 
 func startConsumerSpan(ctx context.Context, queueName string, delivery amqp.Delivery) (context.Context, trace.Span) {

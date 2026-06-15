@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-bucket
+  namespace: {{ include "goavatar.namespace" . }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: {{ .Values.minio.mcImage }}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: minio-secrets
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                sleep 2
+              done
+              mc mb --ignore-existing local/{{ .Values.minio.bucket }}

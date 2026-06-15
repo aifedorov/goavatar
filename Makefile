@@ -1,4 +1,4 @@
-.PHONY: server worker test test-coverage lint fmt all generate sqlc docker-up docker-down docker-clean obs-up
+.PHONY: server worker test test-coverage lint fmt all generate sqlc openapi docker-up docker-down docker-clean obs-up
 
 # --- Build & Run ---
 
@@ -29,10 +29,13 @@ all: fmt lint test
 
 # --- Code Generation ---
 
-generate: sqlc
+generate: sqlc openapi
 
 sqlc:
 	sqlc generate
+
+openapi:
+	oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml
 
 # --- Docker ---
 

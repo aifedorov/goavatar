@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goavatar-worker
+  namespace: {{ include "goavatar.namespace" . }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: goavatar-worker
+  template:
+    metadata:
+      labels:
+        app: goavatar-worker
+    spec:
+      serviceAccountName: {{ include "goavatar.serviceAccountName" . }}
+      securityContext:
+{{ toYaml .Values.securityContext.pod | indent 8 }}
+      containers:
+        - name: worker
+          image: {{ include "goavatar.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+{{ toYaml .Values.securityContext.container | indent 12 }}
+          command: ["/app/worker"]
+          ports:
+            - name: health
+              containerPort: {{ .Values.worker.healthPort }}
+          envFrom:
+            - configMapRef:
+                name: goavatar-config
+            - secretRef:
+                name: goavatar-secrets
+          resources:
+{{ toYaml .Values.worker.resources | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10

@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -149,12 +150,30 @@ func (a *App) Run() error {
 		),
 	}
 
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsSrv := &http.Server{
+		Addr:    a.cfg.MetricsAddress,
+		Handler: metricsMux,
+	}
+
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			a.logger.ErrorContext(shutdownCtx, "shutdown server", slog.Any("error", err))
+		}
+		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+			a.logger.ErrorContext(shutdownCtx, "shutdown metrics server", slog.Any("error", err))
+		}
+	}()
+
+	go func() {
+		a.logger.InfoContext(ctx, "starting metrics server", slog.String("address", a.cfg.MetricsAddress))
+		if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.logger.ErrorContext(ctx, "start metrics server", slog.Any("error", err))
+			stop()
 		}
 	}()
 

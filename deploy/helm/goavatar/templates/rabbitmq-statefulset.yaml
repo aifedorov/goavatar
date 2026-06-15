@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: {{ include "goavatar.namespace" . }}
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: {{ .Values.rabbitmq.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5672
+            - containerPort: 15672
+          envFrom:
+            - secretRef:
+                name: rabbitmq-secrets
+          env:
+            - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+              value: {{ .Values.rabbitmq.erlangArgs | quote }}
+          resources:
+{{ toYaml .Values.rabbitmq.resources | indent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - -q
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - -q
+                - check_running
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.storage }}

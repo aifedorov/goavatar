@@ -1,0 +1,15 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: goavatar-server
+  namespace: {{ include "goavatar.namespace" . }}
+spec:
+  selector:
+    matchLabels:
+      app: goavatar-server
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}

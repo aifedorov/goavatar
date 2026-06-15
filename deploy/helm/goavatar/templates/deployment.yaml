@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goavatar-server
+  namespace: {{ include "goavatar.namespace" . }}
+spec:
+{{- if not .Values.server.hpa.enabled }}
+  replicas: {{ .Values.server.replicas }}
+{{- end }}
+  selector:
+    matchLabels:
+      app: goavatar-server
+  template:
+    metadata:
+      labels:
+        app: goavatar-server
+    spec:
+      serviceAccountName: {{ include "goavatar.serviceAccountName" . }}
+      securityContext:
+{{ toYaml .Values.securityContext.pod | indent 8 }}
+      containers:
+        - name: server
+          image: {{ include "goavatar.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+{{ toYaml .Values.securityContext.container | indent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+          envFrom:
+            - configMapRef:
+                name: goavatar-config
+            - secretRef:
+                name: goavatar-secrets
+          resources:
+{{ toYaml .Values.server.resources | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
