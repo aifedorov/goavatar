@@ -131,7 +131,6 @@ func (a *App) Run() error {
 	r := chi.NewRouter()
 	r.Use(handlers.RouteTagMiddleware)
 	r.Get("/health", healthHandler.Handle)
-	r.Handle("/metrics", promhttp.Handler())
 	r.Post("/api/v1/avatars", avatarHandler.Upload)
 	r.Get("/api/v1/avatars/{avatar_id}", avatarHandler.GetImage)
 	r.Get("/api/v1/avatars/{avatar_id}/metadata", avatarHandler.GetMetadata)
@@ -151,12 +150,30 @@ func (a *App) Run() error {
 		),
 	}
 
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsSrv := &http.Server{
+		Addr:    a.cfg.MetricsAddress,
+		Handler: metricsMux,
+	}
+
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			a.logger.ErrorContext(shutdownCtx, "shutdown server", slog.Any("error", err))
+		}
+		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+			a.logger.ErrorContext(shutdownCtx, "shutdown metrics server", slog.Any("error", err))
+		}
+	}()
+
+	go func() {
+		a.logger.InfoContext(ctx, "starting metrics server", slog.String("address", a.cfg.MetricsAddress))
+		if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.logger.ErrorContext(ctx, "start metrics server", slog.Any("error", err))
+			stop()
 		}
 	}()
 

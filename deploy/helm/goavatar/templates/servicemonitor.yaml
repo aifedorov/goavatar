@@ -9,7 +9,7 @@ spec:
     matchLabels:
       app: goavatar-server
   endpoints:
-    - port: http
+    - port: metrics
       path: /metrics
       interval: {{ .Values.serviceMonitor.interval }}
 {{- end }}

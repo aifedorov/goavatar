@@ -23,6 +23,9 @@ spec:
           securityContext:
 {{ toYaml .Values.securityContext.container | indent 12 }}
           command: ["/app/worker"]
+          ports:
+            - name: health
+              containerPort: {{ .Values.worker.healthPort }}
           envFrom:
             - configMapRef:
                 name: goavatar-config
@@ -30,3 +33,15 @@ spec:
                 name: goavatar-secrets
           resources:
 {{ toYaml .Values.worker.resources | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10

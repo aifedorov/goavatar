@@ -261,11 +261,17 @@ Port-forward API:
 kubectl port-forward -n goavatar svc/goavatar-server 8080:80
 ```
 
+Port-forward metrics:
+
+```bash
+kubectl port-forward -n goavatar svc/goavatar-server 9090:9090
+```
+
 Check deployed service:
 
 ```bash
 curl http://localhost:8080/health
-curl http://localhost:8080/metrics
+curl http://localhost:9090/metrics
 ```
 
 Upload avatar to K8s deployment:
@@ -298,7 +304,7 @@ kubectl delete pvc -n goavatar --all
 ## Monitoring In Kubernetes
 
 Helm chart creates `ServiceMonitor` when `serviceMonitor.enabled=true`.
-Prometheus Operator discovers it and scrapes `/metrics` from `goavatar-server`.
+Prometheus Operator discovers it and scrapes `/metrics` from the `metrics` service port.
 
 Install kube-prometheus-stack first if cluster does not have Prometheus Operator:
 

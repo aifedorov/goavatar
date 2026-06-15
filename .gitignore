@@ -25,6 +25,7 @@
 
 # Environment variables
 .env
+deploy/helm/goavatar/values-local.yaml
 
 # Compiled binary
 /app

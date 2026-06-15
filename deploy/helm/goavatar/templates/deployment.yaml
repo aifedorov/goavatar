@@ -4,6 +4,9 @@ metadata:
   name: goavatar-server
   namespace: {{ include "goavatar.namespace" . }}
 spec:
+{{- if not .Values.server.hpa.enabled }}
+  replicas: {{ .Values.server.replicas }}
+{{- end }}
   selector:
     matchLabels:
       app: goavatar-server
@@ -22,7 +25,10 @@ spec:
           securityContext:
 {{ toYaml .Values.securityContext.container | indent 12 }}
           ports:
-            - containerPort: {{ .Values.service.targetPort }}
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
           envFrom:
             - configMapRef:
                 name: goavatar-config

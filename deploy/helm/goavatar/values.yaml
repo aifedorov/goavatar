@@ -12,6 +12,7 @@ image:
   pullPolicy: IfNotPresent
 
 server:
+  replicas: 2
   resources:
     requests:
       cpu: 100m
@@ -28,6 +29,8 @@ server:
 
 worker:
   replicas: 1
+  healthAddress: 0.0.0.0:9091
+  healthPort: 9091
   resources:
     requests:
       cpu: 100m
@@ -38,6 +41,7 @@ worker:
 
 config:
   httpAddress: 0.0.0.0:8080
+  metricsAddress: 0.0.0.0:9090
   logLevel: info
   s3Endpoint: minio:9000
   s3Bucket: avatars
@@ -46,15 +50,16 @@ config:
   staticDir: /app/web/static
 
 secrets:
-  databaseUri: postgres://goavatar:password@postgres:5432/goavatar?sslmode=disable
-  s3AccessKey: minioadmin
-  s3SecretKey: minioadmin
-  rabbitmqUrl: amqp://rabbitmq:rabbitmq@rabbitmq:5672/
+  databaseUri: ""
+  s3AccessKey: ""
+  s3SecretKey: ""
+  rabbitmqUrl: ""
 
 service:
   type: ClusterIP
   port: 80
   targetPort: 8080
+  metricsPort: 9090
 
 ingress:
   enabled: true
@@ -88,7 +93,7 @@ postgres:
   image: postgres:17
   database: goavatar
   username: goavatar
-  password: password
+  password: ""
   storage: 1Gi
   resources:
     requests:
@@ -101,8 +106,8 @@ postgres:
 minio:
   image: minio/minio:RELEASE.2024-12-18T13-15-44Z
   mcImage: minio/mc:RELEASE.2024-11-21T17-21-54Z
-  rootUser: minioadmin
-  rootPassword: minioadmin
+  rootUser: ""
+  rootPassword: ""
   bucket: avatars
   storage: 1Gi
   resources:
@@ -115,8 +120,8 @@ minio:
 
 rabbitmq:
   image: rabbitmq:3.12-management
-  username: rabbitmq
-  password: rabbitmq
+  username: ""
+  password: ""
   storage: 1Gi
   erlangArgs: "+sbwt none +sbwtdcpu none +sbwtdio none"
   resources:
